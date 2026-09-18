@@ -21,7 +21,9 @@ def test_full_spec_covers_every_route():
         "/tickers",
         "/tickers/{ticker}",
         "/tickers/{ticker}/ingest",
+        "/tickers/{ticker}/movements",
         "/tickers/{ticker}/movements/{day}",
+        "/tickers/{ticker}/prices",
         "/tickers/{ticker}/status",
     ]
 

@@ -16,11 +16,15 @@ from app.repositories.ingest_jobs import get_latest_job
 from app.schemas.api import (
     IngestJobResponse,
     IngestRequest,
+    MovementListResponse,
     MovementResponse,
+    PriceListResponse,
+    PriceQuery,
     TickerDataQuery,
     TickerDataResponse,
     TickerSummaryResponse,
 )
+from app.schemas.movement_filters import MovementFilters
 from app.services import ticker_data
 from app.services.ingest_requests import open_job, resolve
 from app.services.pipeline import run_ingest
@@ -110,17 +114,42 @@ def get_ticker(
     query: Annotated[TickerDataQuery, Query()],
 ):
     """Movement-level filters (dates, direction, size, category, driver_hint, confidence) choose which movements are
-    returned; article-level filters (`tier`, `min_relevance`) narrow the articles shown inside each movement."""
+    returned. Article-level filters shape the article list inside each movement.
+
+    By default each movement carries only the articles its explanation cited, without text excerpts, which keeps a
+    year of data near 100 KB. `articles=all` and `include_snippets=true` return the rest. The same data is also
+    available in parts: `/tickers/{ticker}/movements`, `/tickers/{ticker}/prices` and
+    `/tickers/{ticker}/movements/{day}`."""
     ticker = ticker_data.normalize_ticker(ticker)
-    return ticker_data.get_ticker_data(
-        session, ticker, query.movement_filters(), query.include_prices, query.include_news
-    )
+    return ticker_data.get_ticker_data(session, ticker, query.movement_filters(), query.include_prices)
+
+
+@router.get(
+    "/{ticker}/movements",
+    response_model=MovementListResponse,
+    summary="A ticker's major movements with explanations and articles, filtered and paginated",
+    responses=NOT_INGESTED | INVALID_TICKER,
+)
+def list_movements(ticker: str, session: SessionDep, filters: Annotated[MovementFilters, Query()]):
+    return ticker_data.get_movements(session, ticker_data.normalize_ticker(ticker), filters)
+
+
+@router.get(
+    "/{ticker}/prices",
+    response_model=PriceListResponse,
+    summary="Daily price bars for the analysed period, or for a date range",
+    responses=NOT_INGESTED | INVALID_TICKER,
+)
+def list_prices(ticker: str, session: SessionDep, query: Annotated[PriceQuery, Query()]):
+    """Prices are split- and dividend-adjusted. Without dates this returns the period covered by the ticker's
+    ingests. The warm-up history stored before it is only returned when asked for by date."""
+    return ticker_data.get_prices(session, ticker_data.normalize_ticker(ticker), query.start, query.end)
 
 
 @router.get(
     "/{ticker}/movements/{day}",
     response_model=MovementResponse,
-    summary="One movement in full: stats, explanation and every article considered",
+    summary="One movement in full: stats, explanation and every article considered, with excerpts",
     responses=MOVEMENT_NOT_FOUND | INVALID_TICKER,
 )
 def get_movement(ticker: str, day: date, session: SessionDep):

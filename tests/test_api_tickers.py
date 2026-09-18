@@ -122,7 +122,8 @@ def test_everything_for_a_ticker(seeded):
 
     up = data["movements"][-1]
     assert up["explanation"]["category"] == "company" and up["driver_hint"] == "idiosyncratic"
-    assert [(a["title"], a["cited"]) for a in up["articles"]] == [("Acme Earnings", True), ("Acme Store", False)]
+    # Lean by default: only the article the explanation cited, and no text excerpt
+    assert [(a["title"], a["cited"], a["snippet"]) for a in up["articles"]] == [("Acme Earnings", True, None)]
     assert data["movements"][0]["explanation"] is None
 
 
@@ -152,20 +153,37 @@ def test_pagination_reports_the_unpaged_total(seeded):
     assert dates(page) == [str(DOWN_DAY)] and page.json()["total_movements"] == 3
 
 
-def test_article_filters_narrow_articles_not_movements(seeded):
-    cited_only = seeded.get("/tickers/ACME?min_relevance=0.5&sort=date_asc").json()
-    assert cited_only["total_movements"] == 3
-    assert [len(m["articles"]) for m in cited_only["movements"]] == [1, 1, 0]
+def article_counts(client, query: str) -> list[int]:
+    data = client.get(f"/tickers/ACME?sort=date_asc&{query}").json()
+    assert data["total_movements"] == 3  # article options never remove movements
+    return [len(m["articles"]) for m in data["movements"]]
 
-    macro_only = seeded.get("/tickers/ACME?tier=macro&sort=date_asc").json()
-    assert [len(m["articles"]) for m in macro_only["movements"]] == [0, 1, 0]
+
+def test_article_scope(seeded):
+    assert article_counts(seeded, "") == [1, 1, 0]  # cited is the default
+    assert article_counts(seeded, "articles=cited") == [1, 1, 0]
+    assert article_counts(seeded, "articles=all") == [2, 1, 0]
+    assert article_counts(seeded, "articles=none") == [0, 0, 0]
+    assert seeded.get("/tickers/ACME?articles=some").status_code == 422
+
+
+def test_article_filters_combine_with_the_scope(seeded):
+    assert article_counts(seeded, "tier=macro") == [0, 1, 0]
+    assert article_counts(seeded, "articles=all&min_relevance=0.9") == [1, 0, 0]
+    assert article_counts(seeded, "articles=all&tier=company") == [2, 0, 0]
+
+
+def test_snippets_are_opt_in(seeded):
+    lean = seeded.get("/tickers/ACME?sort=date_asc").json()["movements"][0]["articles"][0]
+    full = seeded.get("/tickers/ACME?sort=date_asc&include_snippets=true").json()["movements"][0]["articles"][0]
+    assert lean["snippet"] is None and full["snippet"] == "Snippet for acme-earnings."
 
 
 def test_prices_follow_the_date_filter_and_can_be_left_out(seeded):
     windowed = seeded.get("/tickers/ACME?start=2026-01-07&end=2026-01-09").json()
     assert [p["date"] for p in windowed["prices"]] == ["2026-01-07", "2026-01-08", "2026-01-09"]
 
-    slim = seeded.get("/tickers/ACME?include_prices=false&include_news=false").json()
+    slim = seeded.get("/tickers/ACME?include_prices=false&articles=none").json()
     assert slim["prices"] is None and all(m["articles"] == [] for m in slim["movements"])
     assert slim["movements"][-1]["explanation"] is not None  # explanations stay; only the article lists go
 
@@ -229,3 +247,54 @@ def test_a_ticker_with_an_interrupted_job_can_be_ingested_again(client, session)
         pass
     response = client.post("/tickers/ACME/ingest")
     assert response.status_code == 202 and response.json()["id"] != stale.id
+
+
+# --- sub-resources ---------------------------------------------------------------------------------------------------
+
+
+def test_movements_listing_matches_the_ticker_endpoint(seeded):
+    query = "direction=up&sort=date_asc&articles=all&include_snippets=true"
+    listing = seeded.get(f"/tickers/ACME/movements?{query}").json()
+    everything = seeded.get(f"/tickers/ACME?{query}").json()
+    assert listing["ticker"] == "ACME" and listing["total_movements"] == 2
+    assert listing["movements"] == everything["movements"]  # one query layer, so the two cannot disagree
+    assert "prices" not in listing and "summary" not in listing
+
+
+def test_movements_listing_paginates_and_validates(seeded):
+    page = seeded.get("/tickers/ACME/movements?sort=date_asc&limit=1&offset=2").json()
+    assert [m["date"] for m in page["movements"]] == [str(UNEXPLAINED_DAY)] and page["total_movements"] == 3
+    assert seeded.get("/tickers/ACME/movements?directon=up").status_code == 422
+    assert seeded.get("/tickers/NOPE/movements").status_code == 404
+
+
+def test_prices_listing(seeded):
+    everything = seeded.get("/tickers/ACME/prices").json()
+    assert everything["ticker"] == "ACME" and len(everything["prices"]) == len(CLOSES)
+    assert set(everything["prices"][0]) == {"date", "open", "high", "low", "close", "volume"}
+
+    windowed = seeded.get("/tickers/ACME/prices?start=2026-01-07&end=2026-01-08").json()
+    assert [p["date"] for p in windowed["prices"]] == ["2026-01-07", "2026-01-08"]
+    assert seeded.get("/tickers/ACME/prices?start=2026-02-01&end=2026-01-01").status_code == 422
+    assert seeded.get("/tickers/ACME/prices?from=2026-01-01").status_code == 422
+    assert seeded.get("/tickers/NOPE/prices").status_code == 404
+
+
+def test_single_movement_is_the_full_view(seeded):
+    movement = seeded.get(f"/tickers/ACME/movements/{UP_DAY}").json()
+    assert [(a["title"], a["cited"]) for a in movement["articles"]] == [("Acme Earnings", True), ("Acme Store", False)]
+    assert all(a["snippet"] for a in movement["articles"])
+
+
+def test_prices_default_to_the_analysed_period_not_the_warm_up_history(client):
+    """Ingest stores ~100 days of earlier prices for the volatility stats. They were never analysed, so responses
+    leave them out unless a date range asks for them."""
+    client.post("/tickers/ACME/ingest", json={"start": "2026-01-08", "end": "2026-01-12"})
+
+    default = client.get("/tickers/ACME/prices").json()
+    assert (default["start"], default["end"]) == ("2026-01-08", "2026-01-12")
+    assert [p["date"] for p in default["prices"]] == ["2026-01-08", "2026-01-09", "2026-01-12"]
+
+    summary = client.get("/tickers/ACME").json()
+    assert summary["summary"]["first_price_date"] == "2026-01-08" and len(summary["prices"]) == 3
+    assert len(client.get("/tickers/ACME/prices?start=2026-01-01").json()["prices"]) == len(CLOSES)

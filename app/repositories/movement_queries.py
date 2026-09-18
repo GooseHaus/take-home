@@ -68,8 +68,15 @@ def get_prices(session: Session, ticker: str, start: date | None, end: date | No
     return list(session.scalars(stmt.order_by(Price.date)))
 
 
-def price_date_range(session: Session, ticker: str) -> tuple[date | None, date | None]:
-    return session.execute(select(func.min(Price.date), func.max(Price.date)).where(Price.ticker == ticker)).one()
+def price_date_range(
+    session: Session, ticker: str, start: date | None = None, end: date | None = None
+) -> tuple[date | None, date | None]:
+    stmt = select(func.min(Price.date), func.max(Price.date)).where(Price.ticker == ticker)
+    if start:
+        stmt = stmt.where(Price.date >= start)
+    if end:
+        stmt = stmt.where(Price.date <= end)
+    return session.execute(stmt).one()
 
 
 def movement_counts(session: Session, ticker: str) -> tuple[int, int]:

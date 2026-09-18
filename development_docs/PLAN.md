@@ -2,7 +2,7 @@
 
 Tickets in dependency order, with what shipped and the results of the live checks. Phases and cut lines are in [ROADMAP.md](ROADMAP.md), code rules in [CONVENTIONS.md](CONVENTIONS.md), reasoning in [DECISIONS.md](DECISIONS.md).
 
-Status: all tickets done. 174 tests, ruff clean. The demo video and the written answers are the author's.
+Status: all tickets done. 181 tests, ruff clean. The demo video and the written answers are the author's.
 
 ## Data model
 
@@ -107,3 +107,9 @@ Live on gpt-5.4-mini:
 **T7-1 OpenAPI files.** `python -m scripts.export_openapi` writes `openapi/openapi.yaml`, `tickers.yaml` and `chat.yaml`. The per-group files keep only the schemas they use. All three validate as OpenAPI 3.1. A test fails when the committed files are out of date. Routes now declare their 404, 422, 502 and 503 responses with an `ErrorResponse` schema.
 
 **T7-2 Review fixes (D21).** An independent review plus my own checks. The main fix: the pipeline no longer holds SQLite's write lock during network calls. 18 regression tests in `tests/test_robustness.py`, including one on a real database file that fails against the old code. Live: two ingests and a chat request ran at the same time on the real server with no errors.
+
+### Epic 8: After the manual test
+
+**T8, T9 README on Windows (D22).** Windows quickstart, curl commands that work in cmd and bash, no `curl -s`, a health check first, an explicit conversation id placeholder.
+
+**T10 Lean responses (D23).** `articles=cited|all|none` and `include_snippets` on the shared filters, with cited and no excerpts as the default. New `GET /tickers/{ticker}/movements` and `GET /tickers/{ticker}/prices`. Prices and the summary default to the analysed period, which fixes a leak of warm-up history. Measured on a year of AAPL: the default response went from 633 KB to 134 KB, `/movements` is 95 KB, `/prices` is 38 KB, and the five largest moves without prices are 21 KB. 7 new tests.

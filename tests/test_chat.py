@@ -79,9 +79,8 @@ def test_answer_is_grounded_in_tool_results_and_cites_only_linked_articles(ask):
     assert body["answer"] == f"Acme rose 5.0% on {UP_DAY}: [earnings beat]({EARNINGS_URL})."
     assert body["citations"] == [{"title": "Acme Earnings", "url": EARNINGS_URL, "source": "news.example.com"}]
     assert body["tool_calls"] == [
-        {"name": "list_movements", "arguments": {"ticker": "ACME", "direction": "up", "sort": "magnitude",
-                                                 "explained_only": False, "limit": 10, "offset": 0}}
-    ]  # fmt: skip
+        {"name": "list_movements", "arguments": {"ticker": "ACME", "direction": "up", "sort": "magnitude"}}
+    ]
 
     first_messages, first_tools = llm.chat_calls[0]
     assert first_messages[0]["role"] == "system" and "ACME (Acme Corp)" in first_messages[0]["content"]

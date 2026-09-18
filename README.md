@@ -43,7 +43,7 @@ API docs are at <http://localhost:8000/docs>.
 The OpenAPI (Swagger) spec is also committed as YAML, so it can be read without running the app:
 
 - [openapi/openapi.yaml](openapi/openapi.yaml): the whole API
-- [openapi/tickers.yaml](openapi/tickers.yaml): ingest, status and the ticker data endpoints
+- [openapi/tickers.yaml](openapi/tickers.yaml): ingest, status, ticker data, movements and prices
 - [openapi/chat.yaml](openapi/chat.yaml): the chat endpoints
 
 Paste any of them into <https://editor.swagger.io> to browse it. They are generated from the code with `python -m scripts.export_openapi`, and a test fails if they are out of date.
@@ -115,13 +115,15 @@ Recent moves are handled differently, because news keeps arriving after a move. 
 curl "localhost:8000/tickers/AAPL"
 ```
 
-That returns everything, which is several hundred kilobytes of unformatted JSON for a year of data. To read it, either open <http://localhost:8000/docs> and run the request there, or ask for less and format it:
+For a year of AAPL that is about 130 KB of unformatted JSON: the company profile, daily prices for the analysed period, every major movement, and for each one its explanation and the articles that explanation cited. To read it, either open <http://localhost:8000/docs> and run the request there, or ask for less and format it:
 
 ```bash
-curl "localhost:8000/tickers/AAPL?sort=magnitude&limit=3&include_prices=false&min_relevance=0.5" | python -m json.tool
+curl "localhost:8000/tickers/AAPL?sort=magnitude&limit=3&include_prices=false" | python -m json.tool
 ```
 
-The response has the company profile, daily prices, every major movement, and the explanation and articles for each movement:
+The response is lean by default. Every search result is stored, but most are candidates the explanation rejected, and each has a text excerpt. Returning all of them made this response 633 KB, of which 85% was articles. `articles=all` and `include_snippets=true` bring them back.
+
+One movement looks like this:
 
 ```json
 {
@@ -147,18 +149,32 @@ All filters are optional and can be combined:
 | `driver_hint` | `driver_hint=market` | What the price data suggested: `market`, `sector` or `idiosyncratic` |
 | `min_confidence` | `min_confidence=0.8` | Minimum explanation confidence |
 | `explained_only` | `explained_only=true` | Leave out moves that were not explained |
-| `tier`, `min_relevance` | `min_relevance=0.5` | Limits the articles shown inside each movement. Does not remove movements |
+| `articles` | `articles=all` | Articles per movement: `cited` (default, the ones the explanation relied on), `all` or `none`. Never removes movements |
+| `tier`, `min_relevance` | `tier=macro` | Narrow the article list further. Never removes movements |
+| `include_snippets` | `include_snippets=true` | Add each article's text excerpt |
 | `sort` | `sort=magnitude` | `date_desc` (default), `date_asc` or `magnitude` |
 | `limit`, `offset` | `limit=10` | Pagination over movements. `total_movements` is the full count |
-| `include_prices`, `include_news` | `include_prices=false` | Leave parts out of the response |
+| `include_prices` | `include_prices=false` | Leave the price bars out |
 
-Market-driven drops, showing only the articles the explanation relied on:
+Market-driven drops:
 
 ```bash
-curl "localhost:8000/tickers/AAPL?direction=down&category=macro&min_relevance=0.5&include_prices=false"
+curl "localhost:8000/tickers/AAPL?direction=down&category=macro&include_prices=false"
 ```
 
-One movement with every article that was considered:
+The same data is available in parts. The movements on their own, with the same filters:
+
+```bash
+curl "localhost:8000/tickers/AAPL/movements?sort=magnitude&limit=5"
+```
+
+The price bars on their own. Without dates this is the analysed period; `start` and `end` select a range:
+
+```bash
+curl "localhost:8000/tickers/AAPL/prices?start=2026-07-01&end=2026-07-31"
+```
+
+One movement with every article that was considered, including excerpts:
 
 ```bash
 curl localhost:8000/tickers/AAPL/movements/2026-07-31
@@ -209,7 +225,7 @@ Ingest (`POST /tickers/{ticker}/ingest`) runs four stages as a background job an
 3. News. Three Exa searches per movement: company, industry (naming the competitors) and macro. Results are cached by search key.
 4. Explanation. One OpenAI structured-output call per movement sees the price context, the competitors' same-day moves and the articles. It returns a summary, a category, a confidence and a relevance score for each article.
 
-`GET /tickers/{ticker}` and `POST /chat` read the stored results and make no news searches. They share one query layer and one `MovementFilters` model. Chat also stores its conversation.
+`GET /tickers/{ticker}`, its `/movements` and `/prices` sub-resources, and `POST /chat` read the stored results and make no news searches. They share one query layer and one `MovementFilters` model. Chat also stores its conversation.
 
 Design notes:
 
@@ -233,7 +249,7 @@ app/
   prompts/        LLM prompts as .md files
   dependencies.py provider wiring
   config.py       settings from the environment
-tests/            174 offline tests, with fakes for each provider
+tests/            181 offline tests, with fakes for each provider
 openapi/          generated OpenAPI spec (YAML)
 scripts/          export_openapi.py
 development_docs/ roadmap, tickets, conventions and decision log

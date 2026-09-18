@@ -1,3 +1,5 @@
+from datetime import date
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -57,3 +59,20 @@ def fail_interrupted_jobs(session: Session) -> int:
         job.finished_at = utcnow()
     session.commit()
     return len(jobs)
+
+
+def analysed_period(session: Session, ticker: str) -> tuple[date, date] | None:
+    """The span covered by the ticker's finished ingests, or None if there are none.
+
+    Prices are stored from well before this (warm-up history for the volatility stats), so responses use this span
+    to show only the period that was actually analysed.
+    """
+    jobs = session.scalars(select(IngestJob).where(IngestJob.ticker == ticker, IngestJob.status == JobStatus.DONE))
+    spans = [
+        (date.fromisoformat(params["start"]), date.fromisoformat(params["end"]))
+        for job in jobs
+        if (params := (job.detail or {}).get("params")) and params.get("start") and params.get("end")
+    ]
+    if not spans:
+        return None
+    return min(start for start, _ in spans), max(end for _, end in spans)
