@@ -11,6 +11,7 @@ from app.main import app
 from app.models import ChatMessage
 from app.schemas.chat import ListMovementsArgs
 from app.schemas.movement_filters import MovementFilters
+from app.services.chat.chat_service import OUT_OF_ROUNDS
 from app.services.chat.tool_schema import tool_specs
 from app.services.chat.tools.registry import CHAT_TOOLS
 from tests.fakes.fake_llm_client import FakeLLMClient
@@ -156,7 +157,7 @@ def test_round_limit_forces_a_final_answer_without_tools(ask):
     assert response.json()["answer"] == "Best answer I have."
     assert len(llm.chat_calls) == MAX_TOOL_ROUNDS + 1
     final_messages, final_tools = llm.chat_calls[-1]
-    assert final_tools is None and final_messages[-1]["role"] == "system"
+    assert final_tools is None and final_messages[-1] == {"role": "user", "content": OUT_OF_ROUNDS}
 
 
 def test_focus_ticker_and_today_reach_the_system_prompt(ask):

@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import uuid
 from datetime import date
 
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 NO_TICKERS = "(none yet)"
 OUT_OF_ROUNDS = "You have used all your tool calls. Answer now using only what the tools have already returned."
+URL_END = r"(?![A-Za-z0-9\-._~%/?#=&+])"
 EMPTY_ANSWER = "I couldn't produce an answer from the stored data."
 
 
@@ -66,6 +68,10 @@ def run_tool(session: Session, tools: dict[str, ChatTool], call: ToolCall) -> tu
         return args.model_dump(mode="json", exclude_none=True), tool.run(session, args)
     except AppError as exc:
         return args.model_dump(mode="json", exclude_none=True), {"error": exc.message}
+    except Exception:
+        # By now the turn has paid for at least one LLM call. Report the failure to the model instead of a 500.
+        logger.exception("chat tool %s crashed", call.name)
+        return args.model_dump(mode="json", exclude_none=True), {"error": "The tool failed unexpectedly."}
 
 
 def collect_articles(node, found: dict[str, Citation]) -> None:
@@ -82,7 +88,12 @@ def collect_articles(node, found: dict[str, Citation]) -> None:
 
 def citations_in(answer: str, seen: dict[str, Citation]) -> list[Citation]:
     """Articles the answer actually links to, in order of appearance. URLs the tools never returned are ignored."""
-    cited = [(answer.find(url), citation) for url, citation in seen.items() if url in answer]
+    cited = []
+    for url, citation in seen.items():
+        # The URL must end where it ends in the answer, so ".../a" is not counted as cited by a link to ".../a-b"
+        match = re.search(re.escape(url) + URL_END, answer)
+        if match:
+            cited.append((match.start(), citation))
     return [citation for _, citation in sorted(cited, key=lambda pair: pair[0])]
 
 
@@ -123,7 +134,7 @@ def chat(
             new_messages.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps(result, default=str)})
     else:
         logger.warning("chat %s hit the tool-round limit", conversation_id)
-        final = llm.chat(context + new_messages + [{"role": "system", "content": OUT_OF_ROUNDS}], None)
+        final = llm.chat(context + new_messages + [{"role": "user", "content": OUT_OF_ROUNDS}], None)
         new_messages.append(final.as_message())
         answer = final.content
 

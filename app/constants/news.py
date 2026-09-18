@@ -11,6 +11,7 @@ INDUSTRY_RESULTS = 5
 MACRO_RESULTS = 5
 
 MAX_PEERS = 4
+QUERY_DIGEST_CHARS = 8
 MACRO_CACHE_SCOPE = "global"
 MACRO_QUERY = (
     "What moved the stock market today: Wall Street, Federal Reserve, interest rates, inflation, economy, geopolitics"

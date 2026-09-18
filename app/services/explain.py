@@ -7,18 +7,21 @@ from sqlalchemy.orm import Session
 from app.constants.llm import MAX_ARTICLES_IN_PROMPT
 from app.constants.market import MARKET_TICKER
 from app.domain import PeerMove
+from app.enums import NewsTier
 from app.models import Article, Company, Explanation, Movement
 from app.prompts import load_prompt
 from app.providers.llm import LLMClient
 from app.repositories.explanations import save_explanation
 from app.repositories.movements import linked_articles
 from app.schemas.llm import ExplanationOutput
+from app.services.news.registry import NEWS_TIERS
 
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = "explain_movement_system"
 USER_PROMPT = "explain_movement_user"
 NOT_AVAILABLE = "n/a"
+TIER_QUOTAS = {strategy.tier: strategy.max_results for strategy in NEWS_TIERS}
 NO_ARTICLES = "(no articles were found for this window)"
 NO_PEER_MOVES = "(no competitor prices available)"
 
@@ -75,8 +78,21 @@ def build_user_prompt(
 
 
 def prompt_articles(session: Session, movement: Movement) -> list[tuple[str, Article]]:
-    pairs = [(link.tier.value, article) for link, article in linked_articles(session, movement)]
-    return pairs[:MAX_ARTICLES_IN_PROMPT]
+    """The articles the model sees: up to each tier's quota, newest first within a tier, shown oldest to newest.
+
+    Re-fetching news for a recent move (D19) can link more articles than fit. Later coverage ("shares fell
+    after...") is the strongest evidence, so when something has to go it is the oldest article of that tier.
+    """
+    by_tier: dict[NewsTier, list[Article]] = {}
+    for link, article in linked_articles(session, movement):
+        by_tier.setdefault(link.tier, []).append(article)
+
+    chosen = []
+    for tier, articles in by_tier.items():
+        newest_first = sorted(articles, key=lambda a: (a.published_at is not None, a.published_at), reverse=True)
+        chosen += [(tier.value, article) for article in newest_first[: TIER_QUOTAS[tier]]]
+    chosen.sort(key=lambda pair: (pair[1].published_at is None, pair[1].published_at, pair[1].id))
+    return chosen[:MAX_ARTICLES_IN_PROMPT]
 
 
 def request_explanation(llm: LLMClient, user_prompt: str) -> ExplanationOutput:

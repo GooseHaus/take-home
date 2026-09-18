@@ -1,6 +1,6 @@
 # Start here
 
-Status as of 2026-09-18: all code is done. 145 tests pass and ruff is clean.
+Status as of 2026-09-18: all code is done. 174 tests pass and ruff is clean.
 
 ## What's left
 
@@ -32,7 +32,7 @@ What shipped in each ticket, with the numbers from the live runs, is in [PLAN.md
 
 ## Known gaps
 
-- MSFT and TSLA in the local database still have competitors in the older names-only format. The next ingest of each upgrades them and loads competitor prices (D20).
+- TSLA in the local database still has competitors in the older names-only format. Its next ingest upgrades them and loads competitor prices (D20).
 - News for a recent move only updates when ingest is run again. Nothing runs on a schedule (D19).
 - Accuracy was checked by looking at known days. It was not measured.
 
@@ -42,6 +42,7 @@ What shipped in each ticket, with the numbers from the live runs, is in [PLAN.md
 uvicorn app.main:app      # docs at http://localhost:8000/docs
 pytest
 ruff check . && ruff format --check .
+python -m scripts.export_openapi   # after changing an endpoint or schema
 ```
 
 The local `data/app.db` holds AAPL and MSFT with 25 explained movements each. Delete it after any model change, because there are no migrations (D2).

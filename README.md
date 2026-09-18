@@ -65,9 +65,9 @@ curl -s -X POST localhost:8000/tickers/MSFT/ingest -H 'content-type: application
 
 | Field | Default | Meaning |
 |---|---|---|
-| `start`, `end` | last 365 days | Period to analyse. `lookback_days` can be used instead of `start` |
-| `threshold_pct` | `2.0` | Minimum absolute close-to-close change, in percent, to count as a major move |
-| `max_movements` | `25` | Cost limit. The N largest moves get news searches and an explanation, plus any move from the last 7 days |
+| `start`, `end` | last 365 days | Period to analyse, at most 5 years and not in the future. `lookback_days` can be used instead of `start` |
+| `threshold_pct` | `2.0` | Minimum absolute close-to-close change, in percent, to count as a major move. At least 0.5 |
+| `max_movements` | `25` | Cost limit, at most 50. The N largest moves get news searches and an explanation, plus any move from the last 7 days |
 | `refresh` | `false` | Re-explain moves that already have an explanation |
 
 Ingest can be repeated safely. It skips searches and explanations it has already done, so a re-run of past dates takes about a second and costs nothing. Macro news searches don't depend on the ticker, so a second ticker reuses the ones the first ticker ran.
@@ -161,7 +161,7 @@ Ingest (`POST /tickers/{ticker}/ingest`) runs four stages as a background job an
 3. News. Three Exa searches per movement: company, industry (naming the competitors) and macro. Results are cached by search key.
 4. Explanation. One OpenAI structured-output call per movement sees the price context, the competitors' same-day moves and the articles. It returns a summary, a category, a confidence and a relevance score for each article.
 
-`GET /tickers/{ticker}` and `POST /chat` only read from the database. They share one query layer and one `MovementFilters` model.
+`GET /tickers/{ticker}` and `POST /chat` read the stored results and make no news searches. They share one query layer and one `MovementFilters` model. Chat also stores its conversation.
 
 Design notes:
 
@@ -185,7 +185,7 @@ app/
   prompts/        LLM prompts as .md files
   dependencies.py provider wiring
   config.py       settings from the environment
-tests/            152 offline tests, with fakes for each provider
+tests/            174 offline tests, with fakes for each provider
 openapi/          generated OpenAPI spec (YAML)
 scripts/          export_openapi.py
 development_docs/ roadmap, tickets, conventions and decision log
@@ -215,6 +215,8 @@ Without keys the app still starts and serves data that was already ingested. Ing
 - Exa's published-date filter drops pages with a missing or wrong date. The search window is extended by one day to pick up next-day coverage.
 - News for a recent move is only updated when ingest is run again. Nothing re-ingests on a schedule.
 - Outside the last 7 days, only the N largest moves in the requested range are explained.
-- Background jobs run inside the API process. A restart during an ingest loses the job. Posting the ingest again resumes it without repeating finished work.
+- Background jobs run inside the API process, so run one process. A job interrupted by a restart is marked failed at the next start. Posting the ingest again resumes it without repeating finished work.
+- SQLite allows one writer at a time. The pipeline never holds the write lock during a network call, and connections wait up to 30 seconds for it, so ingests and chat can run together. Many parallel ingests would still queue.
+- Validation errors use FastAPI's standard 422 body, while application errors use `{"error": {"code", "message"}}`.
 - SQLite with no migrations. A schema change means deleting `data/app.db`.
-- No authentication or rate limiting. `search_articles` is a substring match, not full-text search.
+- No authentication or rate limiting. One ingest request is capped at 50 explained moves and 5 years, but nothing limits how many requests are made. `search_articles` is a substring match, not full-text search.

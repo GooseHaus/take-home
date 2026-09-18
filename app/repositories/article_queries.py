@@ -17,12 +17,12 @@ def search_articles(
     limit: int,
 ) -> list[tuple[Article, list[Movement]]]:
     """Case-insensitive substring match on title/snippet (D8: FTS5 is the upgrade path). Most relevant links first."""
-    pattern = f"%{query.strip()}%"
+    text = query.strip()
     stmt = (
         select(Article, Movement)
         .join(MovementArticle, MovementArticle.article_id == Article.id)
         .join(Movement, Movement.id == MovementArticle.movement_id)
-        .where(or_(Article.title.ilike(pattern), Article.snippet.ilike(pattern)))
+        .where(or_(Article.title.icontains(text, autoescape=True), Article.snippet.icontains(text, autoescape=True)))
     )
     if ticker:
         stmt = stmt.where(Movement.ticker == ticker)

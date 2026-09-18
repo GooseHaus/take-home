@@ -1,5 +1,6 @@
 """Turn an ingest request into a job row + resolved parameters. The pipeline runs the job."""
 
+import threading
 from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
@@ -10,6 +11,8 @@ from app.domain import ResolvedIngest
 from app.models import IngestJob
 from app.repositories.ingest_jobs import create_job, get_active_job
 from app.schemas.api import IngestRequest
+
+_open_job_lock = threading.Lock()
 
 
 def resolve(request: IngestRequest, settings: Settings, today: date | None = None) -> ResolvedIngest:
@@ -26,9 +29,11 @@ def resolve(request: IngestRequest, settings: Settings, today: date | None = Non
 
 def open_job(session: Session, ticker: str, resolved: ResolvedIngest) -> tuple[IngestJob, bool]:
     """(job, created). An ingest already in flight for the ticker is returned instead of starting a second one."""
-    active = get_active_job(session, ticker)
-    if active:
-        return active, False
-    job = create_job(session, ticker, resolved.as_params())
-    session.commit()
-    return job, True
+    # Requests run on a thread pool. Without the lock, two POSTs for one ticker could both see no active job.
+    with _open_job_lock:
+        active = get_active_job(session, ticker)
+        if active:
+            return active, False
+        job = create_job(session, ticker, resolved.as_params())
+        session.commit()
+        return job, True

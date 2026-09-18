@@ -71,7 +71,7 @@ def ensure_peers(session: Session, llm: LLMClient, company: Company) -> list[Pee
 
     suggested = [p for p in output.peers if p.name.strip()][:MAX_PEERS]
     company.peers = [{"name": p.name.strip(), "ticker": _clean_ticker(p.ticker, company.ticker)} for p in suggested]
-    session.flush()
+    session.commit()
     logger.info("peers for %s: %s", company.ticker, company.peers)
     return company_peers(company)
 
@@ -79,19 +79,22 @@ def ensure_peers(session: Session, llm: LLMClient, company: Company) -> list[Pee
 def ingest_peer_prices(
     session: Session, provider: MarketDataProvider, peers: list[Peer], start: date, end: date
 ) -> list[str]:
-    """Store price history for peers that have a ticker. A peer whose prices can't be fetched is skipped."""
-    loaded = []
+    """Store price history for peers that have a ticker. A peer whose prices can't be fetched is skipped.
+
+    All fetches finish before the first write, so the write lock is never held across a network call.
+    """
+    fetched = {}
     for peer in peers:
         if not peer.ticker:
             continue
         try:
-            bars = provider.fetch_history(peer.ticker, start - timedelta(days=WARMUP_DAYS), end)
+            fetched[peer.ticker] = provider.fetch_history(peer.ticker, start - timedelta(days=WARMUP_DAYS), end)
         except AppError as exc:
             logger.warning("no prices for peer %s (%s): %s", peer.name, peer.ticker, exc.message)
-            continue
-        upsert_prices(session, peer.ticker, bars)
-        loaded.append(peer.ticker)
-    return loaded
+    for peer_ticker, bars in fetched.items():
+        upsert_prices(session, peer_ticker, bars)
+    session.commit()
+    return list(fetched)
 
 
 def load_peer_returns(session: Session, peers: list[Peer]) -> dict[str, pd.Series]:

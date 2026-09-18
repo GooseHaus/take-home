@@ -573,14 +573,14 @@ components:
         threshold_pct:
           anyOf:
           - type: number
-            exclusiveMinimum: 0.0
+            minimum: 0.5
           - type: 'null'
           title: Threshold Pct
           description: 'Major-movement cutoff in percent. Default: 2.0'
         max_movements:
           anyOf:
           - type: integer
-            maximum: 200.0
+            maximum: 50.0
             minimum: 1.0
           - type: 'null'
           title: Max Movements

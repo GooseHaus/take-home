@@ -66,7 +66,7 @@ Revisit: an evaluation set of known events to measure category accuracy.
 
 Why: ingest is too long for one request. Celery or RQ would be the production choice but adds infrastructure for the reviewer. Repeatable ingest makes the simple option acceptable: after a crash, posting again resumes without repeating paid calls.
 
-Tradeoff: jobs are lost if the process restarts, and there is one worker.
+Tradeoff: there is one worker, and a job interrupted by a restart is marked failed at the next start (D21).
 
 Revisit: a durable queue.
 
@@ -193,3 +193,35 @@ Tradeoff: up to four more yfinance fetches per ingest. LLM-suggested tickers can
 Live check: an AAPL refresh upgraded its competitors to Samsung, Dell, Lenovo and HPE, loaded all four price histories, and re-explained 25 moves in 20 s with no new searches. Two moves changed hint from idiosyncratic to sector because competitors rose with Apple. One move (2026-04-22) changed from `industry` to `company`: with competitors mixed that day, the model cited the announced CEO transition.
 
 Revisit: compare Asian listings with the next day's move, and use a curated competitor list.
+
+## D21. Fixes from the pre-submission review
+
+An independent review of the whole repo found one serious problem and several smaller ones. All of these are fixed and have regression tests in `tests/test_robustness.py`.
+
+The serious one: the pipeline held SQLite's write lock across network calls. `ingest_prices` wrote the ticker's prices and then fetched SPY, the sector ETF and the competitors, and asked the LLM for competitors, all before the next commit. Any other write in that window failed after 5 seconds with "database is locked". That meant a 500 from `/chat` after its LLM calls were paid for, or a 500 from a second ticker's ingest, which is exactly what the README walkthrough does. The failure handler then hit the same lock and raised, leaving a job stuck as pending. No test saw it because every test shared one in-memory connection.
+
+Fix: fetch everything first, then write and commit. No write transaction is ever open during a network call. The engine also uses WAL mode and a 30 second busy timeout. The failure path records the error with a fresh session and cannot raise. One test runs the pipeline on a real database file and writes from a second connection during every fetch. It fails against the old code and passes now.
+
+Other fixes:
+
+- A job left pending or running by a stopped server blocked that ticker forever. Startup now marks such jobs failed.
+- Two POSTs for one ticker could both start a job. Job creation is now under a lock.
+- Ingest requests are bounded: no future dates, at most 5 years, at most 50 explained moves, threshold at least 0.5%. Before, one unauthenticated request could ask for 200 moves, which is 600 searches.
+- Datetimes lost their UTC offset in SQLite, so the same timestamp came back with and without a "Z". A `UTCDateTime` column type fixes that.
+- When a move had more articles than fit in the prompt, the newest were dropped. Those are the "shares fell after" reports, the strongest evidence. Now each tier keeps its newest articles.
+- Raising the threshold left the old smaller moves in place. Undetected moves without an explanation are now removed. Explained ones are kept because they were paid for.
+- A zero average volume or a zero previous close produced infinity. Those values are now treated as missing.
+- yfinance exceptions and unparsable Exa results become `ProviderError`, so one bad competitor or search no longer fails the job.
+- A crashing chat tool is reported to the model as an error, not returned as a 500.
+- A URL counts as cited only when the whole URL appears in the answer.
+- Article search escapes `%` and `_`.
+- A misspelt query parameter returns 422. It used to be ignored.
+- Both system prompts say that article text is untrusted and must not be followed as instructions.
+- Unexpected errors are logged in full but stored on the public job row only as the exception type.
+- The industry search cache key includes a digest of the query, so results cached before competitors were known are not reused.
+
+Left as is, on purpose:
+
+- Validation errors use FastAPI's 422 body and application errors use `{"error": {...}}`. Unifying them is a small handler, but it changes every documented error example.
+- `GET /tickers/{ticker}` returns 404 during the first seconds of a first ingest, before the company row exists. The status endpoint shows the running job.
+- There is still no authentication or rate limiting (out of scope, see ROADMAP).

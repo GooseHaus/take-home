@@ -6,6 +6,9 @@ LLM_MAX_WORKERS = 6
 
 MAX_ERRORS_RECORDED = 20
 
+# How long a connection waits for SQLite's single write lock before failing with "database is locked"
+SQLITE_BUSY_TIMEOUT_SECONDS = 30
+
 # News keeps arriving after a move. A cached search is final only if it ran at least this many days after its window
 # closed; until then a re-ingest runs it again (D19).
 NEWS_SETTLE_DAYS = 2

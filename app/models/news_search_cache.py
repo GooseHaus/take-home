@@ -1,10 +1,11 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Float, String
+from sqlalchemy import JSON, Float, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
 from app.models.base import utcnow
+from app.models.utc_datetime import UTCDateTime
 
 
 class NewsSearchCache(Base):
@@ -15,4 +16,4 @@ class NewsSearchCache(Base):
     cache_key: Mapped[str] = mapped_column(String(512), primary_key=True)
     article_ids: Mapped[list] = mapped_column(JSON)
     cost_dollars: Mapped[float | None] = mapped_column(Float)
-    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    fetched_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)

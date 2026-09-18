@@ -32,10 +32,10 @@ class ExaNewsProvider:
                 end_published_date=f"{end.isoformat()}T23:59:59Z",
                 contents=EXA_CONTENTS,
             )
+            hits = [hit for result in response.results if (hit := self._to_hit(result))]
         except Exception as exc:
             raise ProviderError(f"Exa search failed: {exc}") from exc
 
-        hits = [hit for result in response.results if (hit := self._to_hit(result))]
         cost = getattr(getattr(response, "cost_dollars", None), "total", None)
         logger.info(
             "exa search %r %s..%s -> %d hits, $%s, %.2fs",

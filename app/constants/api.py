@@ -14,3 +14,8 @@ DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
 
 MAX_LOOKBACK_DAYS = 365 * 5
+
+# Bounds on what one unauthenticated ingest request can spend. Each explained move is 3 searches and 1 LLM call.
+MAX_MOVEMENTS_PER_INGEST = 50
+# Below this nearly every trading day counts as a "major" move
+MIN_THRESHOLD_PCT = 0.5
