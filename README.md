@@ -8,12 +8,31 @@ Stack: Python 3.11, FastAPI, SQLite (SQLAlchemy 2), yfinance, [Exa](https://exa.
 
 You need Python 3.11+, an [Exa API key](https://dashboard.exa.ai/api-keys) (the free tier is enough) and an OpenAI API key.
 
+macOS and Linux:
+
 ```bash
-git clone https://github.com/GooseHaus/take-home.git && cd take-home
+git clone https://github.com/GooseHaus/take-home.git
+cd take-home
 python -m venv venv
-source venv/bin/activate            # Windows: venv\Scripts\activate
+source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env                # fill in EXA_API_KEY and OPENAI_API_KEY
+cp .env.example .env
+```
+
+Windows (Command Prompt):
+
+```bat
+git clone https://github.com/GooseHaus/take-home.git
+cd take-home
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env
+```
+
+Open `.env`, fill in `EXA_API_KEY` and `OPENAI_API_KEY`, then start the server:
+
+```bash
 uvicorn app.main:app
 ```
 
@@ -32,10 +51,13 @@ Tests run offline and need no keys:
 ```bash
 pip install -r requirements-dev.txt
 pytest
-ruff check . && ruff format --check .
+ruff check .
+ruff format --check .
 ```
 
 ## Walkthrough
+
+Run these in a second terminal while the server is running. They work as written in bash and in the Windows Command Prompt. In PowerShell, `curl` is an alias for a different command, so type `curl.exe`, or use the Swagger page at <http://localhost:8000/docs>, where every endpoint can be tried from the browser.
 
 ### 1. Ingest a ticker
 
@@ -59,8 +81,7 @@ curl -s localhost:8000/tickers/AAPL/status
 The request body is optional:
 
 ```bash
-curl -s -X POST localhost:8000/tickers/MSFT/ingest -H 'content-type: application/json' \
-  -d '{"start": "2026-01-01", "end": "2026-06-30", "threshold_pct": 3, "max_movements": 10}'
+curl -s -X POST localhost:8000/tickers/MSFT/ingest -H "content-type: application/json" -d "{\"start\": \"2026-01-01\", \"end\": \"2026-06-30\", \"threshold_pct\": 3, \"max_movements\": 10}"
 ```
 
 | Field | Default | Meaning |
@@ -125,8 +146,7 @@ curl -s localhost:8000/tickers
 ### 3. Chat with the data
 
 ```bash
-curl -s localhost:8000/chat -H 'content-type: application/json' \
-  -d '{"message": "Why did AAPL drop at the end of July?"}'
+curl -s localhost:8000/chat -H "content-type: application/json" -d "{\"message\": \"Why did AAPL drop at the end of July?\"}"
 ```
 
 ```json
@@ -139,8 +159,7 @@ curl -s localhost:8000/chat -H 'content-type: application/json' \
 Send the `conversation_id` back to ask a follow-up:
 
 ```bash
-curl -s localhost:8000/chat -H 'content-type: application/json' \
-  -d '{"conversation_id": "3f2a...", "message": "Was that just Apple, or was the whole market down that day?"}'
+curl -s localhost:8000/chat -H "content-type: application/json" -d "{\"conversation_id\": \"3f2a...\", \"message\": \"Was that just Apple, or was the whole market down that day?\"}"
 ```
 
 Other questions to try:
