@@ -35,12 +35,11 @@ What I'm less happy with: accuracy is *eyeballed*, not measured — I checked kn
 
 ## 4. Did you get stuck anywhere?
 
-Nothing blocked for long, but three things cost time:
+Nothing blocked for long, but four things cost time:
 
 - **FastAPI silently stopped reading my filter model from the query string** — every request returned 422 "field required". Cause: a Pydantic model is only treated as query parameters when it's the endpoint's *sole* query parameter, and I'd added two loose flags beside it. Found it by hitting the endpoint directly and reading the error's `loc`; fixed with a small subclass that carries the flags (D17).
 - **A field named `date` shadowing the `date` type** broke annotations, first in a SQLAlchemy model and later in a Pydantic schema. Fixed with `import datetime as dt`; the second time I recognised it immediately.
 - **In-memory SQLite gives each connection its own empty database**, so tests saw missing tables until the engine used a single shared connection (`StaticPool`).
-
 - **Three tests that only passed on my machine.** A fresh-clone dry run (new venv, no `.env`) failed where my local run was green: those tests never injected a fake LLM, so they were silently leaning on my real API key. The test config now blanks the keys, so local runs behave like CI. Cheap lesson in why the dry run is on the checklist.
 
 One design correction rather than a bug: after adding the industry and macro tiers, already-explained moves were skipped by the idempotency logic, so they never saw the new evidence. That led to the `refresh` flag — re-explain, but still never repeat a cached search (D15).
