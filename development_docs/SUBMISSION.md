@@ -46,12 +46,13 @@ What I'm less happy with:
 
 ## 4. Did you get stuck anywhere?
 
-Nothing blocked me for long. Five things cost time:
+Nothing blocked me for long. Six things cost time:
 
 - FastAPI stopped reading my filter model from the query string, and every request returned 422. A Pydantic model is only read as query parameters when it is the endpoint's only query parameter, and I had added two separate flags next to it. I found it by calling the endpoint directly and reading the error location. The fix was a small subclass that includes the flags (D17).
 - A field named `date` shadowed the `date` type and broke the annotations after it, first in a SQLAlchemy model and later in a Pydantic schema. The fix was `import datetime as dt`.
 - In-memory SQLite gives each connection its own empty database, so tests couldn't see the tables until the engine used a single shared connection.
 - A final review found that the pipeline held SQLite's write lock while it waited on network calls, so a chat request or a second ingest during that window failed with "database is locked". My tests could not see it because they all shared one in-memory connection. I changed the pipeline to fetch first and write afterwards, and added a test on a real database file that fails against the old code (D21).
+- My README did not work on Windows. I followed it myself from a fresh clone in the Command Prompt and hit `cp`, single-quoted JSON in curl, and `curl -s` hiding the fact that the server was not running. The earlier dry run had passed because it ran in Git Bash. I rewrote the commands so they work in both shells and verified them in cmd (D22).
 - Three tests passed only on my machine. A dry run from a fresh clone, with a new venv and no `.env`, showed they were using my real API key because they never injected a fake LLM. The test setup now blanks the keys, so local runs behave like CI.
 
 One design change came from testing. After I added the industry and macro tiers, moves that were already explained were skipped, so they never saw the new articles. I added a `refresh` flag that re-explains a move without repeating any cached search (D15). Later, a question about stale news led to D19: searches for recent moves run again until the news settles, and recent moves are always explained.

@@ -115,6 +115,12 @@ Recent moves are handled differently, because news keeps arriving after a move. 
 curl "localhost:8000/tickers/AAPL"
 ```
 
+That returns everything, which is several hundred kilobytes of unformatted JSON for a year of data. To read it, either open <http://localhost:8000/docs> and run the request there, or ask for less and format it:
+
+```bash
+curl "localhost:8000/tickers/AAPL?sort=magnitude&limit=3&include_prices=false&min_relevance=0.5" | python -m json.tool
+```
+
 The response has the company profile, daily prices, every major movement, and the explanation and articles for each movement:
 
 ```json
@@ -171,17 +177,19 @@ curl localhost:8000/chat -H "content-type: application/json" -d "{\"message\": \
 ```
 
 ```json
-{ "conversation_id": "3f2a...",
+{ "conversation_id": "e47ddff37f2540a086a893045b680234",
   "answer": "AAPL dropped 7.35% on 2026-07-31 because of a company-specific post-earnings selloff ...",
   "citations": [ { "title": "Apple (AAPL) Q3 2026 earnings report: Live updates", "url": "https://www.cnbc.com/...", "source": "cnbc.com" } ],
   "tool_calls": [ { "name": "list_movements", "arguments": { "ticker": "AAPL", "start": "2026-07-25", "end": "2026-07-31", "direction": "down" } } ] }
 ```
 
-Send the `conversation_id` back to ask a follow-up:
+To ask a follow-up, send the `conversation_id` from your own response back. In the command below, replace `PASTE_ID_HERE` with it and leave everything else, including the backslashes, as it is. An id that does not exist returns `404 conversation_not_found`.
 
 ```bash
-curl localhost:8000/chat -H "content-type: application/json" -d "{\"conversation_id\": \"3f2a...\", \"message\": \"Was that just Apple, or was the whole market down that day?\"}"
+curl localhost:8000/chat -H "content-type: application/json" -d "{\"conversation_id\": \"PASTE_ID_HERE\", \"message\": \"Was that just Apple, or was the whole market down that day?\"}"
 ```
+
+The escaped quotes are easy to mistype. The `/docs` page has the same endpoint with a plain JSON box, which is the easier way to hold a longer conversation.
 
 Other questions to try:
 
@@ -252,7 +260,7 @@ Without keys the app still starts and serves data that was already ingested. Ing
 - An explanation is the most likely cause according to the news found. It is not proof, and it is not investment advice.
 - Competitors listed in Asia close before the US session opens, so their same-date move lags by a day. The driver hint uses the median across competitors, which limits the effect. Competitor names and tickers come from the LLM and can be wrong; a ticker with no price data is skipped.
 - Only single-day moves are detected. A slow 10% slide over two weeks is missed.
-- Exa's published-date filter drops pages with a missing or wrong date. The search window is extended by one day to pick up next-day coverage.
+- Exa's published-date filter drops pages with a missing or wrong date, and a page with a wrong date can also be let in. The prompt tells the model to discard an article whose own text shows it is from after the move, but some cases can't be detected from the excerpt. One example in a test run: Apple's July 30 earnings release was indexed with a July 1 date and was cited for the July 2 move. The search window is extended by one day to pick up next-day coverage.
 - News for a recent move is only updated when ingest is run again. Nothing re-ingests on a schedule.
 - Outside the last 7 days, only the N largest moves in the requested range are explained.
 - Background jobs run inside the API process, so run one process. A job interrupted by a restart is marked failed at the next start. Posting the ingest again resumes it without repeating finished work.
