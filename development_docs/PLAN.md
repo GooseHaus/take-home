@@ -4,7 +4,7 @@
 
 See also: [CONVENTIONS.md](CONVENTIONS.md) (how code is written here), [ROADMAP.md](ROADMAP.md) (phases, timeboxes, cut lines), [DECISIONS.md](DECISIONS.md) (choices & tradeoffs), [START_HERE.md](START_HERE.md) (live status).
 
-> **Build status (2026-09-18):** T0-1, T1-1, T1-2, Phases 0–3 done (107 tests, ruff clean). Next: Phase 4 — T4-1 chat tools + loop.
+> **Build status (2026-09-18):** T0-1, T1-1, T1-2, Phases 0–4 done (120 tests, ruff clean). Next: Phase 5 — README, fresh-clone dry run, submission answers, video.
 
 ---
 
@@ -139,13 +139,14 @@ Ordered by dependency. One commit per ticket.
 
 ### Epic 4 — Chat
 
-#### T4-1: Tools + loop
+#### T4-1: Tools + loop ✅
 - JSON-schema tool defs wrapping `queries.py`. Loop: model → tool calls → results → model, max 5 rounds. Collect cited URLs from tool results the model actually used.
 - **Done when:** fake-LLM test passes; live question returns a grounded, cited answer.
 
-#### T4-2: Conversations
+#### T4-2: Conversations ✅
 - Persist messages by `conversation_id` (server-generated if absent); history replay truncated to the last N turns.
 - **Done when:** a follow-up question resolves "that day" correctly.
+- **Shipped (T4-1 + T4-2, one commit — the loop and its persistence share `chat_service.py` and its tests):** `POST /chat` → `{conversation_id, answer, citations[], tool_calls[]}` and `GET /chat/{conversation_id}`. `LLMClient.chat()` + OpenAI implementation; `ChatTurn` / `ToolCall` domain types. Five tool classes in `services/chat/tools/` behind a `ChatTool` Protocol + registry: `list_tickers`, `list_movements` (args = **`MovementFilters` + ticker**, so REST and chat filter identically), `get_movement`, `search_articles`, `price_summary` — all thin wrappers over `services/ticker_data.py` / the repositories. `tool_schema.py` generates the function specs from the Pydantic arg models (refs inlined). Loop capped at 6 tool rounds, then one forced tool-less answer. Tool failures (not ingested, bad args, unknown tool, bad JSON) go back to the model as `{error}` rather than failing the request. **Citations = articles the answer actually links to, restricted to URLs the tools returned** — a made-up URL can't be cited. Full message trail (incl. tool traffic) is stored; only user questions + final answers are replayed (D18). System prompt is a file and carries today's date, the ingested tickers and an optional focus ticker. 13 new tests with a scripted fake LLM. **Live (gpt-5.4-mini):** "Why did AAPL drop at the end of July?" → resolved the dates itself, one `list_movements` call, correct answer citing CNBC/IBD/Reuters (6 s); follow-up "was that just Apple or the whole market?" → `get_movement` on 2026-07-31, "mostly just Apple… market +0.72%"; MSFT macro-vs-industry question answered from one call with 4 citations and an honest note on an `unexplained` move; un-ingested TSLA → told to `POST /tickers/TSLA/ingest`, no improvisation.
 
 ### Epic 5 — Ship
 

@@ -6,6 +6,7 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 from app.constants.llm import LLM_MAX_RETRIES, LLM_TIMEOUT_SECONDS
+from app.domain import ChatTurn, ToolCall
 from app.errors import ProviderError, ProviderNotConfigured
 
 logger = logging.getLogger(__name__)
@@ -44,3 +45,25 @@ class OpenAILLMClient:
             time.perf_counter() - started,
         )
         return message.parsed
+
+    def chat(self, messages: list[dict], tools: list[dict] | None = None) -> ChatTurn:
+        started = time.perf_counter()
+        try:
+            completion = self._client.chat.completions.create(
+                model=self.model, messages=messages, **({"tools": tools} if tools else {})
+            )
+        except Exception as exc:
+            raise ProviderError(f"OpenAI call failed: {exc}") from exc
+
+        message = completion.choices[0].message
+        calls = [ToolCall(c.id, c.function.name, c.function.arguments) for c in (message.tool_calls or [])]
+        usage = completion.usage
+        logger.info(
+            "openai %s chat: %d tool calls, %s in / %s out tokens, %.2fs",
+            self.model,
+            len(calls),
+            getattr(usage, "prompt_tokens", "?"),
+            getattr(usage, "completion_tokens", "?"),
+            time.perf_counter() - started,
+        )
+        return ChatTurn(content=message.content, tool_calls=calls)

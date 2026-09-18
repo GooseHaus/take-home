@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.api import tickers
+from app.api import chat, tickers
 from app.config import get_settings
 from app.db import init_db
 from app.errors import AppError
@@ -24,6 +24,7 @@ app = FastAPI(
 )
 
 app.include_router(tickers.router)
+app.include_router(chat.router)
 
 
 @app.exception_handler(AppError)
