@@ -4,7 +4,7 @@
 
 See also: [CONVENTIONS.md](CONVENTIONS.md) (how code is written here), [ROADMAP.md](ROADMAP.md) (phases, timeboxes, cut lines), [DECISIONS.md](DECISIONS.md) (choices & tradeoffs), [START_HERE.md](START_HERE.md) (live status).
 
-> **Build status (2026-09-18):** T0-1, T1-1, T1-2, T1-3 done (27 tests, ruff clean). Next: T2-1.
+> **Build status (2026-09-18):** T0-1, T1-1, T1-2, T1-3, T2-1 done (38 tests, ruff clean). Next: T2-3 → T2-4 with the company tier, then T2-2.
 
 ---
 
@@ -106,10 +106,11 @@ Ordered by dependency. One commit per ticket.
 
 ### Epic 2 — News & explanations
 
-#### T2-1: NewsProvider + Exa
+#### T2-1: NewsProvider + Exa ✅
 - Protocol `search(query, start, end, limit) -> list[ArticleHit]`; `ExaProvider`; `FakeNewsProvider` for tests. URL dedupe on insert.
 - Exa call shape (D5): `exa.search(query, type="auto", category="news", start_published_date=..., end_published_date=..., num_results=limit, contents={"highlights": True})`. snake_case kwargs; no deprecated params; record `costDollars`.
 - **Done when:** a manual Exa call for a known date returns on-topic, in-window articles.
+- **Shipped:** `providers/news/{news_provider,exa_news_provider}.py`, `domain/{article_hit,news_search_result}.py`, `repositories/articles.py` (URL-deduped upsert), `utils/{urls,text}.py` (tracking-param stripping, snippet cleaning), `constants/news.py`, `ProviderError` (502) / `ProviderNotConfigured` (503), `FakeNewsProvider`. 11 new tests incl. the exact Exa call shape. **Live:** AAPL 2026-07-30→08-01 → 8 in-window hits (Reuters/CNBC/IBD on the earnings guidance miss behind the −7.35% day), $0.007/search, re-upsert creates no duplicates.
 
 #### T2-2: Tiered search
 - Query builders for company / industry+peers / macro. Peers via one cached LLM call per ticker. Macro cached by date. Top-N cost guard; tier order from `driver_hint`.

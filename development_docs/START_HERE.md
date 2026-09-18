@@ -1,10 +1,10 @@
-# START HERE — Stock Movement Explainer (2026-09-18: Phases 0–1 + conventions retrofit done; next T2-1 Exa provider)
+# START HERE — Stock Movement Explainer (2026-09-18: Phases 0–1, conventions, T2-1 Exa provider done; next T2-3 explanation)
 
 > Living doc. Update the status line and the sections below at the end of every ticket.
 
 ## One-line status
 
-**Phases 0–1 done.** Prices (AAPL + SPY + sector ETF) ingest from yfinance into SQLite; movement detection with z-score, volume ratio, excess returns, driver hint and news window is unit-tested (20 tests) and smoke-tested live (AAPL 1y → 40 movements). Models are one-class-per-file (D10). **T1-3 retrofit done:** code follows [CONVENTIONS.md](CONVENTIONS.md) — constants, enums, Protocol-backed providers, repositories, typed errors, ruff clean, pinned deps (27 tests). **Next: T2-1 Exa news provider.**
+**Phases 0–1 done.** Prices (AAPL + SPY + sector ETF) ingest from yfinance into SQLite; movement detection with z-score, volume ratio, excess returns, driver hint and news window is unit-tested (20 tests) and smoke-tested live (AAPL 1y → 40 movements). Models are one-class-per-file (D10). **T1-3 retrofit done:** code follows [CONVENTIONS.md](CONVENTIONS.md) — constants, enums, Protocol-backed providers, repositories, typed errors, ruff clean, pinned deps (27 tests). **T2-1 done:** Exa news search behind `NewsProvider`, URL-deduped article storage (38 tests). **Next: T2-3 explanation → T2-4 pipeline (company tier), then T2-2 tiers.**
 
 ## The clock
 
@@ -14,7 +14,7 @@
 |-------|--------|--------|
 | 0 Scaffold | 15 min | ✅ |
 | 1 Prices & movements | 40 min | ✅ |
-| 2 News & explanations | 60 min | ⏳ |
+| 2 News & explanations | 60 min | 🟡 T2-1 done |
 | 3 Data API | 35 min | ⏳ |
 | 4 Chat | 45 min | ⏳ |
 | 5 Ship (protected) | 35 min | ⏳ |
@@ -25,6 +25,7 @@
 - **T1-1 models + price ingest** — live: AAPL/SPY/XLK 321 rows each; unknown ticker → `TickerNotFound`.
 - **T1-2 movement detection** — 19 unit tests; live AAPL 1y @2% → 40 movements (23 idiosyncratic / 11 sector / 6 market); biggest 2026-07-31 −7.35%, z −4.1, volume ×2.6.
 - **T1-3 conventions retrofit** — 27 tests, `ruff check` + `ruff format --check` clean; live AAPL run through provider → repositories → detection gives the same 40 movements. *Schema changed (enum columns): delete `data/app.db` if you have an old one (D2).*
+- **T2-1 Exa news provider** — 11 tests (call shape, normalisation, error mapping, dedupe); live search for AAPL's 2026-07-31 drop returned 8 on-topic in-window articles at $0.007.
 
 ## Built but UNVERIFIED
 
@@ -38,7 +39,7 @@
 
 ## Immediate next task
 
-**T2-1** — `NewsProvider` protocol + `ExaProvider` + fake (one class per file under `app/services/news/`), then T2-3 explanation and T2-4 pipeline with the company tier only; T2-2 (industry + macro) once the loop is closed.
+**T2-3** — `LLMClient` Protocol + OpenAI adapter, explanation prompt in `app/prompts/`, structured output typed by `ExplanationCategory`. Then **T2-4** pipeline + jobs with the company tier only; **T2-2** (tier strategy classes: industry + macro) once the loop is closed.
 
 ## How we work (match this)
 
