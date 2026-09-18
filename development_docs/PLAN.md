@@ -4,7 +4,7 @@
 
 See also: [CONVENTIONS.md](CONVENTIONS.md) (how code is written here), [ROADMAP.md](ROADMAP.md) (phases, timeboxes, cut lines), [DECISIONS.md](DECISIONS.md) (choices & tradeoffs), [START_HERE.md](START_HERE.md) (live status).
 
-> **Build status (2026-09-18):** T0-1, T1-1, T1-2, Phases 0–4 done (120 tests, ruff clean). Next: Phase 5 — README, fresh-clone dry run, submission answers, video.
+> **Build status (2026-09-18):** T0-1, T1-1, T1-2, Phases 0–4 done, Phase 5 done bar the video (121 tests, ruff clean, CI workflow added).
 
 ---
 
@@ -150,9 +150,12 @@ Ordered by dependency. One commit per ticket.
 
 ### Epic 5 — Ship
 
-#### T5-1: README + curl walkthrough
-#### T5-2: Fresh-clone dry run, full test pass
-#### T5-3: SUBMISSION.md answers
+#### T5-1: README + curl walkthrough ✅
+- **Shipped:** README (quickstart, ingest → status → filtered GET → chat walkthrough with real outputs, filter table, architecture, config, limitations, what's next) and `.github/workflows/ci.yml` (ruff + pytest, no secrets needed).
+#### T5-2: Fresh-clone dry run, full test pass ✅
+- **Shipped:** cloned into a scratch dir, new venv, `pip install -r requirements-dev.txt` from the pinned files, pytest + ruff. **It found a real bug:** 3 chat tests passed only where a real `.env` existed (they never injected a fake LLM, so a missing key turned an expected 422 into a 503). `tests/conftest.py` now blanks both API keys so the suite is hermetic, and a no-key 503 test was added. Re-run in the clone: 121 passed; with no `.env` the app boots, `/health` reports both keys missing, `/tickers` → `[]`, ingest and chat → 503 naming the key, `/docs` → 200.
+#### T5-3: SUBMISSION.md answers 🟡 drafted
+- First drafts written from DECISIONS.md and the build log. **Questions 2–4 need the author's own voice before submitting.**
 #### T5-4: Demo video, push
 
 ---

@@ -188,7 +188,7 @@ app/
   models/ domain/ schemas/ enums/ errors/      one class per file
   constants/      fixed values                 prompts/       LLM prompts as reviewable .md files
   dependencies.py the wiring                   config.py      env-driven settings
-tests/            120 offline tests; fakes/ implement the Protocols
+tests/            121 offline tests; fakes/ implement the Protocols
 development_docs/ roadmap, tickets, conventions and the decision log
 ```
 
