@@ -4,6 +4,7 @@
 from functools import lru_cache
 
 from app.config import get_settings
+from app.providers.llm import LLMClient, OpenAILLMClient
 from app.providers.market_data import MarketDataProvider, YFinanceMarketDataProvider
 from app.providers.news import ExaNewsProvider, NewsProvider
 
@@ -16,3 +17,9 @@ def get_market_data_provider() -> MarketDataProvider:
 @lru_cache
 def get_news_provider() -> NewsProvider:
     return ExaNewsProvider(get_settings().exa_api_key)
+
+
+@lru_cache
+def get_llm_client() -> LLMClient:
+    settings = get_settings()
+    return OpenAILLMClient(settings.openai_api_key, settings.openai_model)

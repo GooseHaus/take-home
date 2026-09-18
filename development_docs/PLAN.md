@@ -4,7 +4,7 @@
 
 See also: [CONVENTIONS.md](CONVENTIONS.md) (how code is written here), [ROADMAP.md](ROADMAP.md) (phases, timeboxes, cut lines), [DECISIONS.md](DECISIONS.md) (choices & tradeoffs), [START_HERE.md](START_HERE.md) (live status).
 
-> **Build status (2026-09-18):** T0-1, T1-1, T1-2, T1-3, T2-1 done (38 tests, ruff clean). Next: T2-3 → T2-4 with the company tier, then T2-2.
+> **Build status (2026-09-18):** T0-1, T1-1, T1-2, T1-3, T2-1, T2-3 done (45 tests, ruff clean). Next: T2-4 pipeline (company tier), then T2-2.
 
 ---
 
@@ -116,9 +116,10 @@ Ordered by dependency. One commit per ticket.
 - Query builders for company / industry+peers / macro. Peers via one cached LLM call per ticker. Macro cached by date. Top-N cost guard; tier order from `driver_hint`.
 - **Done when:** a movement ends up with articles tagged by tier; a second ticker reuses macro articles with zero new macro searches.
 
-#### T2-3: Explanation
+#### T2-3: Explanation ✅
 - Structured-output call: movement stats + benchmark context + candidate articles → `{summary, category, confidence, article_relevance[]}`. `unexplained` allowed. Writes `explanations` + `movement_articles.relevance`.
 - **Done when:** known earnings day → `company`; known market-wide day → `macro`; both cite URLs.
+- **Shipped:** `LLMClient` Protocol + `OpenAILLMClient` (`chat.completions.parse`, retries, token/latency logging); `schemas/llm/{explanation_output,article_relevance}.py` typed by `ExplanationCategory`; prompts in `app/prompts/explain_movement_{system,user}.md` with a `$placeholder` loader; `services/explain.py` (prompt build split from the network call so the pipeline can parallelise); `repositories/{movements,explanations}.py`; `FakeLLMClient`. Invented article ids are ignored and scores clamped to 0..1. 7 new tests. **Live (gpt-5.4-mini):** AAPL 2026-07-31 −7.35% → `company` 0.98 (Reuters/CNBC/IBD guidance-miss pieces ≥0.93); AAPL 2026-01-20 −3.46% with SPY −2.04% → `macro` 0.72 *using company-tier news only*, citing 2 of 8 articles — the benchmark context (D4) is doing its job.
 
 #### T2-4: Pipeline + jobs
 - `run_ingest(ticker, ...)`: profile → prices → movements → news → explain, updating `ingest_jobs.stage`. Idempotent (skips finished movements). Bounded concurrency across movements. One failure marks that movement, not the job.
