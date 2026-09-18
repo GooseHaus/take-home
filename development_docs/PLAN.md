@@ -2,7 +2,7 @@
 
 Tickets in dependency order, with what shipped and the results of the live checks. Phases and cut lines are in [ROADMAP.md](ROADMAP.md), code rules in [CONVENTIONS.md](CONVENTIONS.md), reasoning in [DECISIONS.md](DECISIONS.md).
 
-Status: all tickets done. 131 tests, ruff clean. The demo video and the written answers are the author's.
+Status: all tickets done. 145 tests, ruff clean. The demo video and the written answers are the author's.
 
 ## Data model
 
@@ -99,3 +99,5 @@ Live on gpt-5.4-mini:
 ### Epic 6: Follow-up
 
 **T6-1 News freshness (D19).** `services/news/freshness.py` has two pure functions, `is_settled` and `is_recent`. `fetch_news` re-runs cached searches that are not settled, merges new articles with the ones already found, and reports which movements gained articles. The pipeline selects the N largest moves plus moves from the last 7 days, and explains a move only when it is new, refreshed or just gained articles. The clock is passed into `run_ingest` so tests control it. Job detail now reports `candidates`, `to_explain` and `searches_refreshed`. 10 new tests. Live: TSLA over 30 days with the limit at 2 explained the two largest moves plus yesterday's +2.27% move. A second run re-ran only that move's 3 searches ($0.02) and paid for no explanation. AAPL and MSFT re-ran from cache at no cost.
+
+**T6-2 Competitor price moves (D20).** `PeersOutput` returns names with tickers. `services/peers.py` stores them, reads the older names-only format, fetches competitor prices and computes their move on a given day. The pipeline suggests competitors and loads their prices before detection. `driver_hint` takes the competitor median as a third benchmark. The explanation prompt has a competitor section, and `peer_moves` is in `MovementResponse` and the chat tool output. 14 new tests. Live: AAPL refresh loaded prices for Samsung, Dell, Lenovo and HPE, re-explained 25 moves in 20 s with no new searches, moved two hints to `sector`, and corrected one `industry` verdict to `company`.

@@ -1,12 +1,12 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
+
+from app.schemas.api.peer_response import PeerResponse
 
 
 class CompanyResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
     ticker: str
     name: str
     sector: str | None
     industry: str | None
     sector_etf: str | None
-    peers: list[str] | None
+    peers: list[PeerResponse]

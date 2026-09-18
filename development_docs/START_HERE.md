@@ -1,6 +1,6 @@
 # Start here
 
-Status as of 2026-09-18: all code is done. 131 tests pass and ruff is clean.
+Status as of 2026-09-18: all code is done. 145 tests pass and ruff is clean.
 
 ## What's left
 
@@ -32,6 +32,7 @@ What shipped in each ticket, with the numbers from the live runs, is in [PLAN.md
 
 ## Known gaps
 
+- MSFT and TSLA in the local database still have competitors in the older names-only format. The next ingest of each upgrades them and loads competitor prices (D20).
 - News for a recent move only updates when ingest is run again. Nothing runs on a schedule (D19).
 - Accuracy was checked by looking at known days. It was not measured.
 

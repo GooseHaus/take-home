@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+from app.schemas.llm.peer_suggestion import PeerSuggestion
+
 
 class PeersOutput(BaseModel):
-    peers: list[str] = Field(description="Company names of the closest publicly traded competitors, most direct first")
+    peers: list[PeerSuggestion] = Field(description="The closest publicly traded competitors, most direct first")

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.constants.llm import MAX_ARTICLES_IN_PROMPT
 from app.constants.market import MARKET_TICKER
+from app.domain import PeerMove
 from app.models import Article, Company, Explanation, Movement
 from app.prompts import load_prompt
 from app.providers.llm import LLMClient
@@ -19,6 +20,7 @@ SYSTEM_PROMPT = "explain_movement_system"
 USER_PROMPT = "explain_movement_user"
 NOT_AVAILABLE = "n/a"
 NO_ARTICLES = "(no articles were found for this window)"
+NO_PEER_MOVES = "(no competitor prices available)"
 
 
 def _signed_pct(value: float | None) -> str:
@@ -38,7 +40,13 @@ def format_article(article: Article, tier: str) -> str:
     )
 
 
-def build_user_prompt(movement: Movement, company: Company, articles: list[tuple[str, Article]]) -> str:
+def format_peer_moves(peer_moves: list[PeerMove]) -> str:
+    return "\n".join(f"{p.name} ({p.ticker}): {p.pct_change:+.2f}%" for p in peer_moves) or NO_PEER_MOVES
+
+
+def build_user_prompt(
+    movement: Movement, company: Company, articles: list[tuple[str, Article]], peer_moves: list[PeerMove] | None = None
+) -> str:
     """`articles` is (tier, article) pairs, already trimmed to what the model should see."""
     return load_prompt(USER_PROMPT).substitute(
         company_name=company.name,
@@ -59,6 +67,7 @@ def build_user_prompt(movement: Movement, company: Company, articles: list[tuple
         excess_vs_market=_signed_pct(movement.excess_vs_market),
         excess_vs_sector=_signed_pct(movement.excess_vs_sector),
         driver_hint=movement.driver_hint.value,
+        peer_moves=format_peer_moves(peer_moves or []),
         window_start=movement.window_start.isoformat(),
         window_end=movement.window_end.isoformat(),
         articles="\n\n".join(format_article(a, tier) for tier, a in articles) or NO_ARTICLES,
@@ -75,8 +84,10 @@ def request_explanation(llm: LLMClient, user_prompt: str) -> ExplanationOutput:
     return llm.structured(load_prompt(SYSTEM_PROMPT).template, user_prompt, ExplanationOutput)
 
 
-def explain_movement(session: Session, llm: LLMClient, movement: Movement, company: Company) -> Explanation:
-    user_prompt = build_user_prompt(movement, company, prompt_articles(session, movement))
+def explain_movement(
+    session: Session, llm: LLMClient, movement: Movement, company: Company, peer_moves: list[PeerMove] | None = None
+) -> Explanation:
+    user_prompt = build_user_prompt(movement, company, prompt_articles(session, movement), peer_moves)
     output = request_explanation(llm, user_prompt)
     logger.info("%s %s explained as %s (%.2f)", movement.ticker, movement.date, output.category, output.confidence)
     return save_explanation(session, movement, output, llm.model)

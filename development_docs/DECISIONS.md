@@ -179,3 +179,17 @@ Tradeoff: a move's searches run again on each ingest during the 2 to 3 days afte
 Live check: TSLA over 30 days with the limit at 2 explained the two largest moves and also yesterday's +2.27% move, the smallest of the ten. A second run re-ran only that move's 3 searches, found nothing new and paid for no explanation. AAPL and MSFT, with no recent moves, re-ran from cache at no cost.
 
 Revisit: a scheduled re-ingest, and settle times per tier.
+
+## D20. Competitor prices as evidence for the industry tier
+
+The LLM now suggests competitors with their Yahoo Finance tickers. Ingest fetches their price history. Each movement's explanation prompt lists how the competitors moved the same day, and the API and chat tools return the same `peer_moves`. If at least two competitors traded that day, their median move also counts as a benchmark for the driver hint: competitors moving together give a `sector` hint even when the broad sector ETF did not move.
+
+Why: the industry tier was the weakest. On AAPL, explanations cited 103 company articles, 13 macro articles and only 4 industry articles, and nothing checked whether competitors actually moved. This applies the idea from D4 one level down: prices say when the industry is the answer, and the news says why.
+
+No schema change. Competitors stay in the `companies.peers` JSON column as `{name, ticker}` objects, and their daily moves are computed from the `prices` table when needed. Rows written earlier hold plain names. They still load, and the next ingest asks the LLM once more to get tickers.
+
+Tradeoff: up to four more yfinance fetches per ingest. LLM-suggested tickers can be wrong, so a ticker with no data is skipped and logged. Competitors listed in Asia close before the US session, so their same-date move lags by a day. The hint uses the median and needs at least two competitors, which limits the damage from one bad series.
+
+Live check: an AAPL refresh upgraded its competitors to Samsung, Dell, Lenovo and HPE, loaded all four price histories, and re-explained 25 moves in 20 s with no new searches. Two moves changed hint from idiosyncratic to sector because competitors rose with Apple. One move (2026-04-22) changed from `industry` to `company`: with competitors mixed that day, the model cited the announced CEO transition.
+
+Revisit: compare Asian listings with the next day's move, and use a curated competitor list.

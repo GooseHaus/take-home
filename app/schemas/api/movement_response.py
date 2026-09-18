@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from app.enums import DriverHint
 from app.schemas.api.article_response import ArticleResponse
 from app.schemas.api.explanation_response import ExplanationResponse
+from app.schemas.api.peer_move_response import PeerMoveResponse
 
 
 class MovementResponse(BaseModel):
@@ -22,5 +23,6 @@ class MovementResponse(BaseModel):
     driver_hint: DriverHint
     news_window_start: date
     news_window_end: date
+    peer_moves: list[PeerMoveResponse]
     explanation: ExplanationResponse | None
     articles: list[ArticleResponse]

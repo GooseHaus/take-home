@@ -78,6 +78,8 @@ The response has the company profile, daily prices, every major movement, and th
 {
   "date": "2026-07-31", "pct_change": -7.35, "zscore": -4.1, "volume_ratio": 2.6,
   "market_pct_change": 0.72, "sector_pct_change": -0.22, "driver_hint": "idiosyncratic",
+  "peer_moves": [ { "name": "Dell Technologies", "ticker": "DELL", "pct_change": 0.14 },
+                  { "name": "Hewlett Packard Enterprise", "ticker": "HPE", "pct_change": 1.61 } ],
   "explanation": { "category": "company", "confidence": 0.97,
                    "summary": "Apple fell 7.35% ... after its earnings report and a weak forward forecast ..." },
   "articles": [ { "title": "Apple disappoints with forecast dogged by supply chain struggles | Reuters",
@@ -146,16 +148,17 @@ The chat model has read-only access through five tools that use the same queries
 
 Ingest (`POST /tickers/{ticker}/ingest`) runs four stages as a background job and stores the results in SQLite:
 
-1. Prices. yfinance daily bars for the ticker, SPY and the ticker's sector ETF.
-2. Movements. Days where the absolute close-to-close change is at least 2%. Each one also gets a z-score against trailing volatility, a volume ratio, and its return relative to the market and the sector. Those produce a driver hint: `market`, `sector` or `idiosyncratic`.
-3. News. Three Exa searches per movement: company, industry (with competitors suggested by the LLM) and macro. Results are cached by search key.
-4. Explanation. One OpenAI structured-output call per movement returns a summary, a category, a confidence and a relevance score for each article.
+1. Prices. yfinance daily bars for the ticker, SPY, the ticker's sector ETF and up to four competitors. The competitors are suggested once per ticker by the LLM, with their tickers.
+2. Movements. Days where the absolute close-to-close change is at least 2%. Each one also gets a z-score against trailing volatility, a volume ratio, and its return relative to the market, the sector and the competitors. Those produce a driver hint: `market`, `sector` or `idiosyncratic`.
+3. News. Three Exa searches per movement: company, industry (naming the competitors) and macro. Results are cached by search key.
+4. Explanation. One OpenAI structured-output call per movement sees the price context, the competitors' same-day moves and the articles. It returns a summary, a category, a confidence and a relevance score for each article.
 
 `GET /tickers/{ticker}` and `POST /chat` only read from the database. They share one query layer and one `MovementFilters` model.
 
 Design notes:
 
 - Paid calls happen once, during ingest. The read endpoints are fast, filters are plain SQL, and nothing is billed twice.
+- Competitor prices do for the industry tier what SPY does for the macro tier. If the closest competitors moved the same way on the same day, the cause is probably industry-wide even when the headlines are about this company. If the stock moved alone, it is probably company-specific. Each movement's `peer_moves` are in the API response and in the chat tools.
 - The driver hint is how the macro tier is handled. Finding macro news is easy. Knowing when macro is the right answer is the hard part, and the price data answers that cheaply: if SPY fell 3% the same day, company headlines are probably not the cause. The hint sets the search order and is passed to the LLM as evidence. In testing, every AAPL move flagged as market-driven was categorised `macro`.
 - The LLM may answer `unexplained`, and it can only cite articles it was given. Three of MSFT's 25 explained moves came back `unexplained`.
 - `MovementFilters` is defined once and used as the REST query string, the chat tool arguments and the repository input. The enums are shared by the database columns, the API and the LLM output schema.
@@ -174,7 +177,7 @@ app/
   prompts/        LLM prompts as .md files
   dependencies.py provider wiring
   config.py       settings from the environment
-tests/            131 offline tests, with fakes for each provider
+tests/            145 offline tests, with fakes for each provider
 development_docs/ roadmap, tickets, conventions and decision log
 ```
 
@@ -197,6 +200,7 @@ Without keys the app still starts and serves data that was already ingested. Ing
 ## Limitations
 
 - An explanation is the most likely cause according to the news found. It is not proof, and it is not investment advice.
+- Competitors listed in Asia close before the US session opens, so their same-date move lags by a day. The driver hint uses the median across competitors, which limits the effect. Competitor names and tickers come from the LLM and can be wrong; a ticker with no price data is skipped.
 - Only single-day moves are detected. A slow 10% slide over two weeks is missed.
 - Exa's published-date filter drops pages with a missing or wrong date. The search window is extended by one day to pick up next-day coverage.
 - News for a recent move is only updated when ingest is run again. Nothing re-ingests on a schedule.

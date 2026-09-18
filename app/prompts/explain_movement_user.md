@@ -14,5 +14,8 @@ Sector ETF ($sector_etf): $sector_pct_change
 Stock minus market: $excess_vs_market | Stock minus sector: $excess_vs_sector
 Driver hint from prices alone: $driver_hint
 
+## Same-day moves of its closest competitors
+$peer_moves
+
 ## Candidate articles (published $window_start to $window_end)
 $articles

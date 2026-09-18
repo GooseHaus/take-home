@@ -1,6 +1,7 @@
 from app.constants.news import INDUSTRY_RESULTS, MAX_PEERS
 from app.enums import NewsTier
 from app.models import Company, Movement
+from app.services.peers import company_peers
 
 
 class IndustryTier:
@@ -10,7 +11,7 @@ class IndustryTier:
     max_results = INDUSTRY_RESULTS
 
     def build_query(self, movement: Movement, company: Company) -> str | None:
-        peers = (company.peers or [])[:MAX_PEERS]
+        peers = [peer.name for peer in company_peers(company)][:MAX_PEERS]
         if not company.industry and not peers:
             return None
         subject = f"{company.industry} industry" if company.industry else f"{company.name} competitors"
