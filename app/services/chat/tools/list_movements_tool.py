@@ -11,7 +11,7 @@ class ListMovementsTool:
     description = (
         "Find a ticker's major single-day price movements and why they happened. Filter by date range, direction, "
         "size, explanation category (company/industry/macro/unexplained) or confidence; sort by date or magnitude. "
-        "Each movement comes with its explanation and its most relevant articles. Start here for most questions."
+        "Each movement comes with its explanation and the articles it cited. Start here for most questions."
     )
     args_model = ListMovementsArgs
 

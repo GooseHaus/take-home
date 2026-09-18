@@ -242,3 +242,19 @@ The earlier fresh-clone dry run missed all of this because it ran in Git Bash.
 The test output also showed a misdated article being cited: Apple's July 30 earnings release, indexed by Exa with a July 1 date, was used as evidence for the July 2 move. A rule was added to the explanation prompt to discard articles whose own text shows they are from after the move. It catches some cases (an April 20 announcement dated April 1 was scored 0) but not this one, because the excerpt gives no later date. This is recorded in the README limitations.
 
 Revisit: cross-check a cited article against other movements' articles, or fetch the page's own date for cited articles only.
+
+## D23. Lean responses by default, with sub-resources
+
+`GET /tickers/{ticker}` now returns, for each movement, only the articles its explanation cited, without text excerpts. `articles=all|cited|none` and `include_snippets=true` control this. Two sub-resources were added: `GET /tickers/{ticker}/movements` (same filters, paginated) and `GET /tickers/{ticker}/prices`. The single-movement endpoint stays the full view: every candidate article, with excerpts. `include_news` was removed in favour of `articles=none`.
+
+Why: the author ran the documented request and got 633 KB. Measured on a year of AAPL, 538 KB of that was 567 article entries, of which 140 were cited. The other 427 were candidates the model rejected, mostly with a relevance of 0, each carrying a 600-character excerpt. A default should return the evidence, not the search log. The default response is now 134 KB with the same movements and explanations, and the full 623 KB is two parameters away. The brief asks for one endpoint for all stock and news data, so that endpoint was kept and the sub-resources were added beside it.
+
+The article options live in `MovementFilters`, so the chat `list_movements` tool gets the same lean default for free.
+
+Also fixed here:
+
+- Prices leaked the warm-up history. Ingest stores about 100 days before the requested window for the volatility stats (D12), and the API returned them, so a window starting 2025-09-18 showed prices from 2025-06-10. Responses, the ticker summary and the chat `price_summary` tool now default to the period covered by the ticker's finished ingests. An explicit date range still returns anything stored.
+- Unknown query parameters are rejected on all three read endpoints, because `extra="forbid"` moved onto `MovementFilters` itself.
+- The chat `tool_calls` trace lists only the arguments the model supplied, not every default.
+
+Tradeoff: this changes the default response shape after the first version was documented. It was done before submission, so nothing depends on the old default. The analysed period is derived from job rows, not stored on the company, to avoid a schema change. A ticker whose only jobs predate stored parameters falls back to all stored prices.

@@ -119,7 +119,16 @@ paths:
       description: 'Movement-level filters (dates, direction, size, category, driver_hint, confidence) choose which movements
         are
 
-        returned; article-level filters (`tier`, `min_relevance`) narrow the articles shown inside each movement.'
+        returned. Article-level filters shape the article list inside each movement.
+
+
+        By default each movement carries only the articles its explanation cited, without text excerpts, which keeps a
+
+        year of data near 100 KB. `articles=all` and `include_snippets=true` return the rest. The same data is also
+
+        available in parts: `/tickers/{ticker}/movements`, `/tickers/{ticker}/prices` and
+
+        `/tickers/{ticker}/movements/{day}`.'
       operationId: get_ticker_tickers__ticker__get
       parameters:
       - name: ticker
@@ -212,6 +221,14 @@ paths:
           default: false
           title: Explained Only
         description: Drop movements that have no explanation yet
+      - name: articles
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/ArticleScope'
+          description: 'Articles to include per movement: cited (the ones the explanation relied on), all, or none'
+          default: cited
+        description: 'Articles to include per movement: cited (the ones the explanation relied on), all, or none'
       - name: tier
         in: query
         required: false
@@ -234,6 +251,15 @@ paths:
           description: Only show articles at or above this relevance
           title: Min Relevance
         description: Only show articles at or above this relevance
+      - name: include_snippets
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: Include each article's text excerpt
+          default: false
+          title: Include Snippets
+        description: Include each article's text excerpt
       - name: sort
         in: query
         required: false
@@ -264,19 +290,10 @@ paths:
         required: false
         schema:
           type: boolean
-          description: Include daily price bars (within start/end)
+          description: Include daily price bars for the analysed period
           default: true
           title: Include Prices
-        description: Include daily price bars (within start/end)
-      - name: include_news
-        in: query
-        required: false
-        schema:
-          type: boolean
-          description: Include each movement's articles
-          default: true
-          title: Include News
-        description: Include each movement's articles
+        description: Include daily price bars for the analysed period
       responses:
         '200':
           description: Successful Response
@@ -296,11 +313,248 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /tickers/{ticker}/movements:
+    get:
+      tags:
+      - tickers
+      summary: A ticker's major movements with explanations and articles, filtered and paginated
+      operationId: list_movements_tickers__ticker__movements_get
+      parameters:
+      - name: ticker
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Ticker
+      - name: start
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          description: Earliest movement date (inclusive)
+          title: Start
+        description: Earliest movement date (inclusive)
+      - name: end
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          description: Latest movement date (inclusive)
+          title: End
+        description: Latest movement date (inclusive)
+      - name: direction
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - $ref: '#/components/schemas/Direction'
+          - type: 'null'
+          description: Only gains (up) or only losses (down)
+          title: Direction
+        description: Only gains (up) or only losses (down)
+      - name: min_abs_change
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: number
+            minimum: 0
+          - type: 'null'
+          description: Minimum absolute daily move, in percent
+          title: Min Abs Change
+        description: Minimum absolute daily move, in percent
+      - name: category
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - $ref: '#/components/schemas/ExplanationCategory'
+          - type: 'null'
+          description: Explanation verdict
+          title: Category
+        description: Explanation verdict
+      - name: driver_hint
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - $ref: '#/components/schemas/DriverHint'
+          - type: 'null'
+          description: What the price data alone suggested
+          title: Driver Hint
+        description: What the price data alone suggested
+      - name: min_confidence
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: number
+            maximum: 1
+            minimum: 0
+          - type: 'null'
+          description: Minimum explanation confidence
+          title: Min Confidence
+        description: Minimum explanation confidence
+      - name: explained_only
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: Drop movements that have no explanation yet
+          default: false
+          title: Explained Only
+        description: Drop movements that have no explanation yet
+      - name: articles
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/ArticleScope'
+          description: 'Articles to include per movement: cited (the ones the explanation relied on), all, or none'
+          default: cited
+        description: 'Articles to include per movement: cited (the ones the explanation relied on), all, or none'
+      - name: tier
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - $ref: '#/components/schemas/NewsTier'
+          - type: 'null'
+          description: Only show articles found by this search tier
+          title: Tier
+        description: Only show articles found by this search tier
+      - name: min_relevance
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: number
+            maximum: 1
+            minimum: 0
+          - type: 'null'
+          description: Only show articles at or above this relevance
+          title: Min Relevance
+        description: Only show articles at or above this relevance
+      - name: include_snippets
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: Include each article's text excerpt
+          default: false
+          title: Include Snippets
+        description: Include each article's text excerpt
+      - name: sort
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/MovementSort'
+          description: Result order
+          default: date_desc
+        description: Result order
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MovementListResponse'
+        '404':
+          description: Nothing has been ingested for this ticker
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The ticker is not a valid symbol, or a parameter failed validation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /tickers/{ticker}/prices:
+    get:
+      tags:
+      - tickers
+      summary: Daily price bars for the analysed period, or for a date range
+      description: 'Prices are split- and dividend-adjusted. Without dates this returns the period covered by the ticker''s
+
+        ingests. The warm-up history stored before it is only returned when asked for by date.'
+      operationId: list_prices_tickers__ticker__prices_get
+      parameters:
+      - name: ticker
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Ticker
+      - name: start
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          description: 'First day. Default: start of the analysed period'
+          title: Start
+        description: 'First day. Default: start of the analysed period'
+      - name: end
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          description: 'Last day. Default: end of the analysed period'
+          title: End
+        description: 'Last day. Default: end of the analysed period'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceListResponse'
+        '404':
+          description: Nothing has been ingested for this ticker
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The ticker is not a valid symbol, or a parameter failed validation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /tickers/{ticker}/movements/{day}:
     get:
       tags:
       - tickers
-      summary: 'One movement in full: stats, explanation and every article considered'
+      summary: 'One movement in full: stats, explanation and every article considered, with excerpts'
       operationId: get_movement_tickers__ticker__movements__day__get
       parameters:
       - name: ticker
@@ -481,6 +735,19 @@ components:
       - relevance
       - cited
       title: ArticleResponse
+    ArticleScope:
+      type: string
+      enum:
+      - cited
+      - all
+      - none
+      title: ArticleScope
+      description: 'Which of a movement''s articles a response includes.
+
+
+        Every search result is stored, but most are candidates the explanation rejected. CITED is the default so a
+
+        response carries the evidence and not the whole search log.'
     ChatMessageResponse:
       properties:
         role:
@@ -839,6 +1106,10 @@ components:
           title: Explained Only
           description: Drop movements that have no explanation yet
           default: false
+        articles:
+          $ref: '#/components/schemas/ArticleScope'
+          description: 'Articles to include per movement: cited (the ones the explanation relied on), all, or none'
+          default: cited
         tier:
           anyOf:
           - $ref: '#/components/schemas/NewsTier'
@@ -852,6 +1123,11 @@ components:
           - type: 'null'
           title: Min Relevance
           description: Only show articles at or above this relevance
+        include_snippets:
+          type: boolean
+          title: Include Snippets
+          description: Include each article's text excerpt
+          default: false
         sort:
           $ref: '#/components/schemas/MovementSort'
           description: Result order
@@ -867,6 +1143,7 @@ components:
           minimum: 0.0
           title: Offset
           default: 0
+      additionalProperties: false
       type: object
       title: MovementFilters
       description: 'The one definition of how movements can be filtered.
@@ -874,7 +1151,32 @@ components:
 
         Used as the REST query parameters, as the chat tools'' arguments (their JSON schema is generated from this model)
 
-        and as the repository''s input, so the three stay in sync.'
+        and as the repository''s input, so the three stay in sync.
+
+
+        Movement fields choose which movements come back. Article fields only shape the article list inside each one.'
+    MovementListResponse:
+      properties:
+        ticker:
+          type: string
+          title: Ticker
+        filters:
+          $ref: '#/components/schemas/MovementFilters'
+        total_movements:
+          type: integer
+          title: Total Movements
+        movements:
+          items:
+            $ref: '#/components/schemas/MovementResponse'
+          type: array
+          title: Movements
+      type: object
+      required:
+      - ticker
+      - filters
+      - total_movements
+      - movements
+      title: MovementListResponse
     MovementResponse:
       properties:
         ticker:
@@ -1014,6 +1316,35 @@ components:
       - name
       - ticker
       title: PeerResponse
+    PriceListResponse:
+      properties:
+        ticker:
+          type: string
+          title: Ticker
+        start:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Start
+        end:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: End
+        prices:
+          items:
+            $ref: '#/components/schemas/PriceResponse'
+          type: array
+          title: Prices
+      type: object
+      required:
+      - ticker
+      - start
+      - end
+      - prices
+      title: PriceListResponse
     PriceResponse:
       properties:
         date:

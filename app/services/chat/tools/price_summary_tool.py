@@ -17,7 +17,10 @@ class PriceSummaryTool:
     def run(self, session: Session, args: PriceSummaryArgs) -> dict:
         ticker = ticker_data.normalize_ticker(args.ticker)
         ticker_data.require_company(session, ticker)
-        prices = movement_queries.get_prices(session, ticker, args.start, args.end)
+        # Same window rule as the REST endpoints: the warm-up history before the first ingest is not performance
+        prices = movement_queries.get_prices(
+            session, ticker, *ticker_data.price_window(session, ticker, args.start, args.end)
+        )
         if not prices:
             return {"ticker": ticker, "error": "No stored prices in that period."}
         first, last = prices[0], prices[-1]

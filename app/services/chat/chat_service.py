@@ -64,14 +64,16 @@ def run_tool(session: Session, tools: dict[str, ChatTool], call: ToolCall) -> tu
         args = tool.args_model.model_validate_json(call.arguments or "{}")
     except ValidationError as exc:
         return {}, {"error": f"Invalid arguments: {exc.errors(include_url=False, include_input=False)}"}
+    # The trace shows what the model asked for, not every default the args model filled in
+    supplied = args.model_dump(mode="json", exclude_unset=True)
     try:
-        return args.model_dump(mode="json", exclude_none=True), tool.run(session, args)
+        return supplied, tool.run(session, args)
     except AppError as exc:
-        return args.model_dump(mode="json", exclude_none=True), {"error": exc.message}
+        return supplied, {"error": exc.message}
     except Exception:
         # By now the turn has paid for at least one LLM call. Report the failure to the model instead of a 500.
         logger.exception("chat tool %s crashed", call.name)
-        return args.model_dump(mode="json", exclude_none=True), {"error": "The tool failed unexpectedly."}
+        return supplied, {"error": "The tool failed unexpectedly."}
 
 
 def collect_articles(node, found: dict[str, Citation]) -> None:
