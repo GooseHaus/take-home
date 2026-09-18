@@ -127,3 +127,51 @@ Choices made while planning and building that a reviewer (or future me) would re
 **Why:** Pragmatic — an OpenAI key already existed; setting up a second provider's billing inside a 4-hour window buys nothing the reviewer can see. Both uses (structured output, tool-calling) are standard features, and the LLM is touched in only two modules.
 
 **Revisit:** A thin client interface if provider choice ever matters.
+
+---
+
+## D10 — One class per file
+
+**Status:** ✅ Implemented (T1-1).
+
+**Decision:** Every class lives in its own module: `app/models/<table>.py`, `app/domain/<dataclass>.py`, `app/errors/<exception>.py`. Packages re-export from `__init__.py` so call sites stay `from app.models import Price`. Pure functions may share a module.
+
+**Why:** A file name tells you exactly what's in it, diffs stay scoped to one concept, and there's no ever-growing `models.py`. Cross-model relationships use string targets + `TYPE_CHECKING` imports, so there are no circular imports.
+
+**Tradeoff:** More files and a little import boilerplate for a project this size.
+
+---
+
+## D11 — Generic news-search cache instead of a macro-only date table
+
+**Status:** ✅ Implemented in the schema (T1-1); used from T2-2.
+
+**Decision:** PLAN.md's `macro_news_cache(date)` became `news_search_cache(cache_key → article_ids, cost)` — one row per executed search of any tier.
+
+**Why:** Same mechanism gives both things we wanted: macro searches shared across tickers (their key has no ticker in it) *and* free idempotent re-ingest for company/industry searches. It also records Exa's per-search cost.
+
+---
+
+## D12 — Adjusted prices, with a warm-up fetch
+
+**Status:** ✅ Implemented (T1-1).
+
+**Decision:** Prices are fetched with `auto_adjust=True`, starting 100 calendar days before the requested window. Existing rows are overwritten on re-ingest.
+
+**Why:** Unadjusted closes turn a 4:1 split into a fake −75% "movement". The warm-up means the trailing-volatility z-score is populated from the first requested day rather than ~3 months in. Overwrite (not insert-or-ignore) because adjusted history shifts after every dividend.
+
+**Tradeoff:** Stored closes are adjusted values, not the prices printed on the day; percentage moves — what we care about — are correct.
+
+---
+
+## D13 — Driver-hint thresholds
+
+**Status:** ✅ Implemented (T1-2).
+
+**Decision:** A benchmark "explains" a move when it moved the same direction by at least `max(1.0%, 40% of the stock's move)`. Market is checked before sector.
+
+**Why:** 1:1 matching would miss high-beta names that amplify the tape (SPY −2.5%, stock −6% is still a market day); the 1% floor stops a drifting index from "explaining" anything. On AAPL's last year this splits 40 moves into 23 idiosyncratic / 11 sector / 6 market, which passes the smell test.
+
+**Tradeoff:** Hand-picked constants, not fitted. They only order searches and inform the prompt, so a wrong hint degrades gracefully.
+
+**Revisit:** Per-ticker beta from a regression.

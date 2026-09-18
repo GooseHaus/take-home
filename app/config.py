@@ -8,7 +8,7 @@ class Settings(BaseSettings):
 
     exa_api_key: str = ""
     openai_api_key: str = ""
-    openai_model: str = ""
+    openai_model: str = "gpt-5.4-mini"
 
     database_url: str = "sqlite:///data/app.db"
     move_threshold_pct: float = 2.0

@@ -4,7 +4,7 @@
 
 See also: [ROADMAP.md](ROADMAP.md) (phases, timeboxes, cut lines), [DECISIONS.md](DECISIONS.md) (choices & tradeoffs), [START_HERE.md](START_HERE.md) (live status).
 
-> **Build status (2026-09-18):** planning complete; no code yet.
+> **Build status (2026-09-18):** T0-1, T1-1, T1-2 done (20 tests). Next: T2-1.
 
 ---
 
@@ -16,7 +16,9 @@ take-home/
     main.py            ← FastAPI app, lifespan (create tables), router wiring
     config.py          ← pydantic-settings; all tunables + keys from .env
     db.py              ← engine, session dependency
-    models.py          ← SQLAlchemy tables
+    models/            ← SQLAlchemy tables, ONE CLASS PER FILE, re-exported from __init__ (D10)
+    domain/            ← plain dataclasses passed between services (one per file)
+    errors/            ← typed exceptions (one per file)
     schemas.py         ← Pydantic request/response models
     queries.py         ← read queries shared by REST endpoints AND chat tools
     services/
@@ -43,7 +45,7 @@ take-home/
 | `movements` | id, ticker, date, pct_change, zscore, excess_vs_market, excess_vs_sector, driver_hint, window_start, window_end | unique (ticker, date) |
 | `articles` | id, url (unique), title, source, published_at, snippet | deduped by URL across movements |
 | `movement_articles` | movement_id, article_id, tier, relevance | tier = company / industry / macro |
-| `macro_news_cache` | date PK, fetched_at | marks a date's macro search as done; articles link as usual |
+| `news_search_cache` | cache_key PK, article_ids (JSON), cost_dollars, fetched_at | one row per executed search (any tier); macro keys are ticker-independent so they're shared (D11) |
 | `explanations` | movement_id PK, summary, category, confidence, model, created_at | cited articles = `movement_articles.relevance` above a cutoff |
 | `ingest_jobs` | id, ticker, status, stage, error, started_at, finished_at | in-process job tracking |
 | `chat_messages` | id, conversation_id, role, content (JSON), created_at | |
@@ -82,20 +84,22 @@ Ordered by dependency. One commit per ticket.
 
 ### Epic 0 — Scaffold
 
-#### T0-1: Project skeleton
+#### T0-1: Project skeleton ✅
 - `requirements.txt`, `.env.example`, package layout, `config.py`, `db.py`, `/health`.
 - **Done when:** `uvicorn app.main:app --reload` boots and `pytest` runs.
 
 ### Epic 1 — Prices & movements
 
-#### T1-1: Models + price ingest
+#### T1-1: Models + price ingest ✅
 - All tables in `models.py`. `prices.fetch_history(ticker, start, end)` and `fetch_profile(ticker)`; sector → sector-ETF map (11 SPDR funds). Upsert by (ticker, date).
 - Unknown/empty ticker raises a typed error.
 - **Done when:** AAPL + SPY + XLK rows land in SQLite.
+- **Shipped:** `app/models/*` (9 tables), `services/prices.py` (adjusted closes, 100-day warm-up fetch, upsert), `TickerNotFound`. Live: 321 rows each for AAPL/SPY/XLK.
 
-#### T1-2: Movement detection (pure functions)
+#### T1-2: Movement detection (pure functions) ✅
 - `detect_movements(prices, market, sector, threshold)` → dataclasses. Close-to-close %, trailing-60d z-score (None during warm-up), excess returns, `driver_hint`, `news_window`.
 - **Done when:** unit tests pass; AAPL 1y gives a plausible count (tens, not hundreds).
+- **Shipped:** `services/movements.py` + 19 unit tests. Live AAPL 1y @2%: **40 movements** (23 idiosyncratic / 11 sector / 6 market). Also stores `volume_ratio` (vs trailing 20d).
 
 ### Epic 2 — News & explanations
 
