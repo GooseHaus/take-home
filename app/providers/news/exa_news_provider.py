@@ -52,7 +52,7 @@ class ExaNewsProvider:
     def _to_hit(result) -> ArticleHit | None:
         if not result.url or not result.title:
             return None
-        highlights = " … ".join(result.highlights or [])
+        highlights = " ... ".join(result.highlights or [])
         return ArticleHit(
             url=normalize_url(result.url),
             title=clean_text(result.title, TITLE_MAX_CHARS),

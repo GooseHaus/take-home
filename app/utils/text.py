@@ -9,5 +9,5 @@ def clean_text(text: str | None, max_chars: int) -> str | None:
         return None
     text = _WHITESPACE.sub(" ", text).strip()
     if len(text) > max_chars:
-        text = text[:max_chars].rsplit(" ", 1)[0] + "…"
+        text = text[:max_chars].rsplit(" ", 1)[0] + "..."
     return text or None

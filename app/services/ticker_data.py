@@ -1,4 +1,4 @@
-"""Assemble stored data into API shapes. Shared by the REST endpoints and the chat tools, so both say the same thing."""
+"""Assemble stored data into API shapes. Shared by the REST endpoints and the chat tools."""
 
 import re
 from datetime import date

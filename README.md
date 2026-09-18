@@ -1,44 +1,31 @@
 # Stock Movement Explainer
 
-Give it a ticker. It fetches a year of prices, finds the days the stock made a major move, searches the news around each one at three levels — **company**, **industry/competitors**, **macro** — and has an LLM write a short, cited explanation with a category and a confidence score. Then query everything through a REST API, or just ask questions in a chat endpoint.
+Give it a ticker. It pulls a year of daily prices, finds the days with a major move, searches for news around each one (company, industry and macro), and uses an LLM to write a short explanation with sources, a category and a confidence score. The results are available through a REST API and a chat endpoint.
 
-```
-$ curl -s localhost:8000/chat -H 'content-type: application/json' \
-    -d '{"message": "Why did AAPL drop at the end of July?"}'
-
-AAPL dropped 7.35% on 2026-07-31 because of a company-specific post-earnings selloff … weak forward guidance,
-with supply-chain and memory-chip constraints weighing on the outlook … classified as a company move with 0.97
-confidence.   [CNBC] [Investor's Business Daily] [Reuters]
-```
-
-**Stack:** Python 3.11 · FastAPI · SQLite (SQLAlchemy 2) · yfinance · [Exa](https://exa.ai) for news · OpenAI for explanations and chat.
-
----
+Stack: Python 3.11, FastAPI, SQLite (SQLAlchemy 2), yfinance, [Exa](https://exa.ai) for news, OpenAI for explanations and chat.
 
 ## Quickstart
 
-You need Python 3.11+, an [Exa API key](https://dashboard.exa.ai/api-keys) (free tier is plenty) and an OpenAI API key.
+You need Python 3.11+, an [Exa API key](https://dashboard.exa.ai/api-keys) (the free tier is enough) and an OpenAI API key.
 
 ```bash
 git clone https://github.com/GooseHaus/take-home.git && cd take-home
 python -m venv venv
 source venv/bin/activate            # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env                # then fill in EXA_API_KEY and OPENAI_API_KEY
+cp .env.example .env                # fill in EXA_API_KEY and OPENAI_API_KEY
 uvicorn app.main:app
 ```
 
-Interactive docs: <http://localhost:8000/docs>. `GET /health` tells you whether both keys were picked up.
+API docs are at <http://localhost:8000/docs>. `GET /health` shows whether both keys loaded.
 
-Run the tests (offline — no keys or network needed):
+Tests run offline and need no keys:
 
 ```bash
 pip install -r requirements-dev.txt
 pytest
 ruff check . && ruff format --check .
 ```
-
----
 
 ## Walkthrough
 
@@ -48,7 +35,7 @@ ruff check . && ruff format --check .
 curl -s -X POST localhost:8000/tickers/AAPL/ingest
 ```
 
-Returns `202` with a job; the work runs in the background (about a minute for a first ticker, ~$0.50 of Exa credit and a few cents of OpenAI). Poll it:
+This returns `202` and a job. The work runs in the background. A first ticker takes about a minute and costs roughly $0.50 of Exa credit plus a few cents of OpenAI. Poll the job:
 
 ```bash
 curl -s localhost:8000/tickers/AAPL/status
@@ -60,7 +47,7 @@ curl -s localhost:8000/tickers/AAPL/status
               "news": { "searches_run": 75, "searches_cached": 0, "cost_dollars": 0.525 }, "errors": [] } }
 ```
 
-The body is optional. Everything has a default:
+The request body is optional:
 
 ```bash
 curl -s -X POST localhost:8000/tickers/MSFT/ingest -H 'content-type: application/json' \
@@ -69,12 +56,12 @@ curl -s -X POST localhost:8000/tickers/MSFT/ingest -H 'content-type: application
 
 | Field | Default | Meaning |
 |---|---|---|
-| `start` / `end` | last 365 days | Period to analyse (`lookback_days` is an alternative to `start`) |
-| `threshold_pct` | `2.0` | What counts as a major move: absolute close-to-close change, in percent |
-| `max_movements` | `25` | Cost guard — only the N largest moves get news searches and an explanation |
+| `start`, `end` | last 365 days | Period to analyse. `lookback_days` can be used instead of `start` |
+| `threshold_pct` | `2.0` | Minimum absolute close-to-close change, in percent, to count as a major move |
+| `max_movements` | `25` | Cost limit. Only the N largest moves get news searches and an explanation |
 | `refresh` | `false` | Re-explain moves that already have an explanation |
 
-**Ingest is idempotent.** Re-posting never repeats a news search or an explanation it has already paid for (a re-run takes under a second). A second ticker reuses the macro searches the first one paid for.
+Ingest can be repeated safely. It skips searches and explanations it has already done, so a re-run takes under a second and costs nothing. Macro news searches don't depend on the ticker, so a second ticker reuses the ones the first ticker ran.
 
 ### 2. Get all stock and news data for a ticker
 
@@ -82,43 +69,43 @@ curl -s -X POST localhost:8000/tickers/MSFT/ingest -H 'content-type: application
 curl -s "localhost:8000/tickers/AAPL"
 ```
 
-One response: company profile, daily prices, every major movement, and for each its explanation and articles.
+The response has the company profile, daily prices, every major movement, and the explanation and articles for each movement:
 
 ```json
 {
   "date": "2026-07-31", "pct_change": -7.35, "zscore": -4.1, "volume_ratio": 2.6,
   "market_pct_change": 0.72, "sector_pct_change": -0.22, "driver_hint": "idiosyncratic",
   "explanation": { "category": "company", "confidence": 0.97,
-                   "summary": "Apple fell 7.35% … after its earnings report and a weak forward forecast …" },
+                   "summary": "Apple fell 7.35% ... after its earnings report and a weak forward forecast ..." },
   "articles": [ { "title": "Apple disappoints with forecast dogged by supply chain struggles | Reuters",
-                  "url": "https://www.reuters.com/…", "tier": "company", "relevance": 0.96, "cited": true } ]
+                  "url": "https://www.reuters.com/...", "tier": "company", "relevance": 0.96, "cited": true } ]
 }
 ```
 
-Filters (all optional, all combinable):
+All filters are optional and can be combined:
 
 | Filter | Example | Effect |
 |---|---|---|
-| `start`, `end` | `start=2026-01-01&end=2026-03-31` | Date range (also bounds the prices returned) |
-| `direction` | `direction=down` | Only losses / only gains |
-| `min_abs_change` | `min_abs_change=4` | Moves of at least 4% either way |
-| `category` | `category=macro` | `company` · `industry` · `macro` · `unexplained` |
-| `driver_hint` | `driver_hint=market` | What prices alone suggested: `market` · `sector` · `idiosyncratic` |
-| `min_confidence` | `min_confidence=0.8` | Explanation confidence |
-| `explained_only` | `explained_only=true` | Drop moves outside the explained top-N |
-| `tier`, `min_relevance` | `min_relevance=0.5` | Narrow the **articles shown** inside each movement (never drops movements) |
-| `sort` | `sort=magnitude` | `date_desc` (default) · `date_asc` · `magnitude` |
-| `limit`, `offset` | `limit=10` | Pagination over movements; `total_movements` is the unpaged count |
-| `include_prices`, `include_news` | `include_prices=false` | Trim the response |
+| `start`, `end` | `start=2026-01-01&end=2026-03-31` | Date range. Also limits the prices returned |
+| `direction` | `direction=down` | Only losses or only gains |
+| `min_abs_change` | `min_abs_change=4` | Moves of at least 4% in either direction |
+| `category` | `category=macro` | `company`, `industry`, `macro` or `unexplained` |
+| `driver_hint` | `driver_hint=market` | What the price data suggested: `market`, `sector` or `idiosyncratic` |
+| `min_confidence` | `min_confidence=0.8` | Minimum explanation confidence |
+| `explained_only` | `explained_only=true` | Leave out moves that were not explained |
+| `tier`, `min_relevance` | `min_relevance=0.5` | Limits the articles shown inside each movement. Does not remove movements |
+| `sort` | `sort=magnitude` | `date_desc` (default), `date_asc` or `magnitude` |
+| `limit`, `offset` | `limit=10` | Pagination over movements. `total_movements` is the full count |
+| `include_prices`, `include_news` | `include_prices=false` | Leave parts out of the response |
 
 ```bash
-# The market-driven sell-offs, with only the articles the explanation relied on
+# Market-driven drops, showing only the articles the explanation relied on
 curl -s "localhost:8000/tickers/AAPL?direction=down&category=macro&min_relevance=0.5&include_prices=false"
 
-# One movement in full, with every article that was considered
+# One movement with every article that was considered
 curl -s localhost:8000/tickers/AAPL/movements/2026-07-31
 
-# What has been ingested
+# Tickers ingested so far
 curl -s localhost:8000/tickers
 ```
 
@@ -130,94 +117,87 @@ curl -s localhost:8000/chat -H 'content-type: application/json' \
 ```
 
 ```json
-{ "conversation_id": "3f2a…",
-  "answer": "AAPL dropped **7.35% on 2026-07-31** because of a company-specific post-earnings selloff …",
-  "citations": [ { "title": "Apple (AAPL) Q3 2026 earnings report: Live updates", "url": "https://www.cnbc.com/…", "source": "cnbc.com" } ],
+{ "conversation_id": "3f2a...",
+  "answer": "AAPL dropped 7.35% on 2026-07-31 because of a company-specific post-earnings selloff ...",
+  "citations": [ { "title": "Apple (AAPL) Q3 2026 earnings report: Live updates", "url": "https://www.cnbc.com/...", "source": "cnbc.com" } ],
   "tool_calls": [ { "name": "list_movements", "arguments": { "ticker": "AAPL", "start": "2026-07-25", "end": "2026-07-31", "direction": "down" } } ] }
 ```
 
-Pass `conversation_id` back for follow-ups:
+Send the `conversation_id` back to ask a follow-up:
 
 ```bash
 curl -s localhost:8000/chat -H 'content-type: application/json' \
-  -d '{"conversation_id": "3f2a…", "message": "Was that just Apple, or was the whole market down that day?"}'
+  -d '{"conversation_id": "3f2a...", "message": "Was that just Apple, or was the whole market down that day?"}'
 ```
 
-Things worth trying: *"Which of Microsoft's big moves this year were macro or industry-driven?"* · *"What were AAPL's three biggest drops and what caused them?"* · *"Which moves involved tariffs?"* · *"How did MSFT do in Q2?"* · a ticker you haven't ingested (it tells you how to ingest it rather than guessing).
+Other questions to try:
 
-The chat model can only read: it answers through five tools that wrap the same queries as the REST endpoints. `citations` lists the articles the answer links to — restricted to URLs the tools actually returned — and `tool_calls` shows which lookups the answer was built from. `GET /chat/{conversation_id}` returns the transcript.
+- Which of Microsoft's big moves this year were macro or industry driven?
+- What were AAPL's three biggest drops and what caused them?
+- How did MSFT do in Q2?
+- Anything about a ticker you haven't ingested. It tells you how to ingest it and does not guess.
 
----
+The chat model has read-only access through five tools that use the same queries as the REST endpoints. `citations` lists the articles the answer links to, limited to URLs the tools returned. `tool_calls` shows the lookups behind the answer. `GET /chat/{conversation_id}` returns the transcript.
 
 ## How it works
 
-```
-            POST /tickers/{t}/ingest  ──►  202 + job row
-                      │ background task
-   ┌──────────────────▼────────────────────────────────────────────────┐
-   │ 1. prices       yfinance: the ticker, SPY, and its sector ETF      │
-   │ 2. movements    |close-to-close| ≥ 2%  + z-score, volume ratio,    │
-   │                 excess return vs market & sector → driver hint     │
-   │ 3. news         Exa, three tiers per movement, cached by key       │
-   │                 company · industry (+LLM-suggested peers) · macro  │
-   │ 4. explanation  OpenAI structured output: summary, category,       │
-   │                 confidence, per-article relevance                  │
-   └──────────────────┬────────────────────────────────────────────────┘
-                      ▼
-                   SQLite
-                      ▲
-        ┌─────────────┴──────────────┐
- GET /tickers/{t} (+filters)     POST /chat
-        └──── one shared read layer + one MovementFilters model ────┘
-```
+Ingest (`POST /tickers/{ticker}/ingest`) runs four stages as a background job and stores the results in SQLite:
 
-**The key ideas**
+1. Prices. yfinance daily bars for the ticker, SPY and the ticker's sector ETF.
+2. Movements. Days where the absolute close-to-close change is at least 2%. Each one also gets a z-score against trailing volatility, a volume ratio, and its return relative to the market and the sector. Those produce a driver hint: `market`, `sector` or `idiosyncratic`.
+3. News. Three Exa searches per movement: company, industry (with competitors suggested by the LLM) and macro. Results are cached by search key.
+4. Explanation. One OpenAI structured-output call per movement returns a summary, a category, a confidence and a relevance score for each article.
 
-- **Do the expensive work once.** Ingest makes every paid call and stores the result; the data endpoint and chat are read-only views. Filters are SQL, answers are reproducible, and nothing is billed twice.
-- **Let prices say where to look.** Before any search, each move is compared with SPY and the stock's sector ETF. If the whole market fell 3%, company headlines that day are probably noise. That `driver_hint` orders the news tiers and is given to the LLM as evidence — it's how the [Hard] macro tier gets answered sensibly: every AAPL move the prices flagged as market-driven came back categorised `macro`.
-- **"Unexplained" is an allowed answer.** The model must cite from the candidate articles it was given and may say the evidence doesn't account for the move. Three of MSFT's 25 explained moves came back `unexplained` rather than invented.
-- **One definition per concept.** `MovementFilters` is the REST query string, the chat tool's arguments (its JSON schema is generated from the model) and the repository's input. Enums type the DB columns, the API, and the LLM's structured output alike.
-- **Seams where the brief implies variation.** News source, LLM and market data sit behind Protocols wired in one file; news tiers and chat tools are registries of small classes — adding the industry and macro tiers was two files and one registry line.
+`GET /tickers/{ticker}` and `POST /chat` only read from the database. They share one query layer and one `MovementFilters` model.
+
+Design notes:
+
+- Paid calls happen once, during ingest. The read endpoints are fast, filters are plain SQL, and nothing is billed twice.
+- The driver hint is how the macro tier is handled. Finding macro news is easy. Knowing when macro is the right answer is the hard part, and the price data answers that cheaply: if SPY fell 3% the same day, company headlines are probably not the cause. The hint sets the search order and is passed to the LLM as evidence. In testing, every AAPL move flagged as market-driven was categorised `macro`.
+- The LLM may answer `unexplained`, and it can only cite articles it was given. Three of MSFT's 25 explained moves came back `unexplained`.
+- `MovementFilters` is defined once and used as the REST query string, the chat tool arguments and the repository input. The enums are shared by the database columns, the API and the LLM output schema.
+- The news source, the LLM and the market data provider each sit behind a Protocol and are wired in `app/dependencies.py`. News tiers and chat tools are small classes in a registry. Adding the industry and macro tiers took two new files and one registry line.
 
 ### Layout
 
 ```
 app/
-  api/            thin routers                 services/      orchestration + pure logic (movements.py does no I/O)
-  repositories/   all database access          providers/     yfinance · Exa · OpenAI, each behind a Protocol
-  models/ domain/ schemas/ enums/ errors/      one class per file
-  constants/      fixed values                 prompts/       LLM prompts as reviewable .md files
-  dependencies.py the wiring                   config.py      env-driven settings
-tests/            121 offline tests; fakes/ implement the Protocols
-development_docs/ roadmap, tickets, conventions and the decision log
+  api/            routers
+  services/       pipeline, movement detection, news tiers, explanations, chat
+  repositories/   database access
+  providers/      yfinance, Exa, OpenAI
+  models/ domain/ schemas/ enums/ errors/    one class per file
+  constants/      fixed values
+  prompts/        LLM prompts as .md files
+  dependencies.py provider wiring
+  config.py       settings from the environment
+tests/            121 offline tests, with fakes for each provider
+development_docs/ roadmap, tickets, conventions and decision log
 ```
 
-`development_docs/` is how this was built: [ROADMAP](development_docs/ROADMAP.md) (phases with timeboxes and cut lines), [PLAN](development_docs/PLAN.md) (tickets, with what shipped and the live numbers), [CONVENTIONS](development_docs/CONVENTIONS.md), and [DECISIONS](development_docs/DECISIONS.md) — 18 entries, each with the tradeoff and when to revisit. [SUBMISSION](development_docs/SUBMISSION.md) has the written answers.
+The planning documents are in `development_docs/`: [ROADMAP](development_docs/ROADMAP.md), [PLAN](development_docs/PLAN.md), [CONVENTIONS](development_docs/CONVENTIONS.md) and [DECISIONS](development_docs/DECISIONS.md). The written answers are in [SUBMISSION](development_docs/SUBMISSION.md).
 
 ### Configuration
 
-| Variable | Default | |
+| Variable | Default | Notes |
 |---|---|---|
-| `EXA_API_KEY` | — | Required for ingest |
-| `OPENAI_API_KEY` | — | Required for ingest and chat |
-| `OPENAI_MODEL` | `gpt-5.4-mini` | Any chat-completions model with structured output and tool calling |
+| `EXA_API_KEY` | | Required for ingest |
+| `OPENAI_API_KEY` | | Required for ingest and chat |
+| `OPENAI_MODEL` | `gpt-5.4-mini` | Needs structured output and tool calling |
 | `DATABASE_URL` | `sqlite:///data/app.db` | |
-| `MOVE_THRESHOLD_PCT` | `2.0` | Default major-move cutoff |
-| `MAX_MOVEMENTS_WITH_NEWS` | `25` | Default cost guard |
-| `LOG_LEVEL` | `INFO` | Every paid call logs its latency and cost |
+| `MOVE_THRESHOLD_PCT` | `2.0` | Default cutoff for a major move |
+| `MAX_MOVEMENTS_WITH_NEWS` | `25` | Default cost limit per ingest |
+| `LOG_LEVEL` | `INFO` | Paid calls log their latency and cost |
 
-Without keys the app still boots and serves anything already ingested; ingest and chat return a `503` naming the missing key.
+Without keys the app still starts and serves data that was already ingested. Ingest and chat return `503` with the name of the missing key.
 
----
+## Limitations
 
-## Limitations, honestly
-
-- **Attribution is plausible, not causal.** An explanation says which news most likely accounts for a move, with a confidence; it is not proof, and it is not investment advice.
-- **Single-day moves only.** A slow 10% slide over two weeks is invisible to a daily threshold.
-- **News recall depends on Exa's date metadata.** Published-date bounds are hard filters, so undated or misdated pages are missed; the search window is padded by a day to compensate.
-- **Background jobs are in-process.** A restart mid-ingest loses the job (re-post it — completed work is kept). Fine for one process; a real deployment wants a durable queue.
-- **SQLite, no migrations.** A schema change means deleting `data/app.db`.
-- **No auth or rate limiting**, and `search_articles` is a substring match rather than full-text search.
-- **Cached searches don't expire**, which is right for history and wrong for a window that includes today.
-
-**What I'd do next:** an evaluation set of known events (earnings dates, FOMC days) to measure category accuracy rather than eyeball it; multi-day drawdowns and runs; a durable job queue and Postgres; incremental "since last ingest" updates; SQLite FTS5 (then embeddings if needed) for article search; streaming chat responses.
+- An explanation is the most likely cause according to the news found. It is not proof, and it is not investment advice.
+- Only single-day moves are detected. A slow 10% slide over two weeks is missed.
+- Exa's published-date filter drops pages with a missing or wrong date. The search window is extended by one day to pick up next-day coverage.
+- Cached searches never expire. That is fine for past dates, but a move ingested on the day it happens won't pick up articles published later.
+- Only the N largest moves in the requested range are explained, so a small recent move can be detected but left unexplained.
+- Background jobs run inside the API process. A restart during an ingest loses the job. Posting the ingest again resumes it without repeating finished work.
+- SQLite with no migrations. A schema change means deleting `data/app.db`.
+- No authentication or rate limiting. `search_articles` is a substring match, not full-text search.

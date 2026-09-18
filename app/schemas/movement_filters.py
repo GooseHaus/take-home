@@ -10,7 +10,7 @@ class MovementFilters(BaseModel):
     """The one definition of how movements can be filtered.
 
     Used as the REST query parameters, as the chat tools' arguments (their JSON schema is generated from this model)
-    and as the repository's input, so the three can't drift apart.
+    and as the repository's input, so the three stay in sync.
     """
 
     start: date | None = Field(None, description="Earliest movement date (inclusive)")

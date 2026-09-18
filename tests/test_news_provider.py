@@ -70,7 +70,7 @@ def test_results_are_normalised_into_article_hits():
     assert hit.source == "reuters.com"
     assert hit.title == "Apple disappoints with forecast"
     assert hit.published_at == datetime(2026, 7, 30, tzinfo=UTC)
-    assert hit.snippet == "Skip to main content Apple shares fell. … Guidance missed."
+    assert hit.snippet == "Skip to main content Apple shares fell. ... Guidance missed."
     assert result.cost_dollars == 0.007
 
 
@@ -103,7 +103,7 @@ def test_source_domain_strips_www():
 
 def test_clean_text_caps_on_a_word_boundary():
     cleaned = clean_text("word " * 500, SNIPPET_MAX_CHARS)
-    assert len(cleaned) <= SNIPPET_MAX_CHARS + 1 and cleaned.endswith("word…")
+    assert len(cleaned) <= SNIPPET_MAX_CHARS + 3 and cleaned.endswith("word...")
     assert clean_text("   \n ", 10) is None
 
 
