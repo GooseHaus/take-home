@@ -4,7 +4,7 @@
 
 See also: [CONVENTIONS.md](CONVENTIONS.md) (how code is written here), [ROADMAP.md](ROADMAP.md) (phases, timeboxes, cut lines), [DECISIONS.md](DECISIONS.md) (choices & tradeoffs), [START_HERE.md](START_HERE.md) (live status).
 
-> **Build status (2026-09-18):** T0-1, T1-1, T1-2, T1-3, T2-1, T2-3, T2-4 done (52 tests, ruff clean). Next: T2-2 industry + macro tiers.
+> **Build status (2026-09-18):** T0-1, T1-1, T1-2, Phases 0–2 done (71 tests, ruff clean). Next: Phase 3 — T3-1 ingest + status endpoints.
 
 ---
 
@@ -112,9 +112,10 @@ Ordered by dependency. One commit per ticket.
 - **Done when:** a manual Exa call for a known date returns on-topic, in-window articles.
 - **Shipped:** `providers/news/{news_provider,exa_news_provider}.py`, `domain/{article_hit,news_search_result}.py`, `repositories/articles.py` (URL-deduped upsert), `utils/{urls,text}.py` (tracking-param stripping, snippet cleaning), `constants/news.py`, `ProviderError` (502) / `ProviderNotConfigured` (503), `FakeNewsProvider`. 11 new tests incl. the exact Exa call shape. **Live:** AAPL 2026-07-30→08-01 → 8 in-window hits (Reuters/CNBC/IBD on the earnings guidance miss behind the −7.35% day), $0.007/search, re-upsert creates no duplicates.
 
-#### T2-2: Tiered search
+#### T2-2: Tiered search ✅
 - Query builders for company / industry+peers / macro. Peers via one cached LLM call per ticker. Macro cached by date. Top-N cost guard; tier order from `driver_hint`.
 - **Done when:** a movement ends up with articles tagged by tier; a second ticker reuses macro articles with zero new macro searches.
+- **Shipped:** `IndustryTier` + `MacroTier` registered beside `CompanyTier` (two new files + one registry line — no pipeline change); per-tier result limits (8/5/5 = the 18 articles a prompt can show); `services/peers.py` + `PeersOutput` + peer prompts (one cached LLM call per ticker, failure falls back to the industry string and isn't cached); `refresh` flag on `run_ingest` (D15); links follow each movement's own tier priority. 19 new tests incl. macro sharing across tickers. **Live:** AAPL refresh → 52 new searches / 23 cached, $0.36, 62 s; peers = Samsung, Alphabet, Microsoft, Sony; categories 17 company / 5 industry / 3 macro, every `market`-hinted move → `macro`. MSFT first ingest reused **6 macro searches AAPL had paid for**; 3 of its moves came back `unexplained` rather than invented.
 
 #### T2-3: Explanation ✅
 - Structured-output call: movement stats + benchmark context + candidate articles → `{summary, category, confidence, article_relevance[]}`. `unexplained` allowed. Writes `explanations` + `movement_articles.relevance`.

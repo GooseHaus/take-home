@@ -25,15 +25,20 @@ from app.schemas.llm import ExplanationOutput
 from app.services.explain import build_user_prompt, prompt_articles, request_explanation
 from app.services.movements import detect_movements
 from app.services.news.search import fetch_news
+from app.services.peers import ensure_peers
 from app.services.price_ingest import benchmark_tickers, ingest_prices
 
 logger = logging.getLogger(__name__)
 
 
-def select_for_explanation(movements: list[Movement], limit: int) -> list[Movement]:
-    """Cost guard: only the `limit` largest moves (by absolute size) get paid news searches and LLM calls."""
+def select_for_explanation(movements: list[Movement], limit: int, refresh: bool = False) -> list[Movement]:
+    """Cost guard: only the `limit` largest moves (by absolute size) get paid news searches and LLM calls.
+
+    Already-explained moves are skipped unless `refresh`; even then cached searches aren't repeated, so a refresh
+    costs the LLM calls plus whatever searches are genuinely new (e.g. a tier added since the last ingest).
+    """
     largest = sorted(movements, key=lambda m: abs(m.pct_change), reverse=True)[:limit]
-    return [m for m in largest if m.explanation is None]
+    return [m for m in largest if refresh or m.explanation is None]
 
 
 def detect_and_store(
@@ -82,6 +87,7 @@ def run_ingest(
     market_data: MarketDataProvider,
     news: NewsProvider,
     llm: LLMClient,
+    refresh: bool = False,
 ) -> None:
     """Entry point for the background task. Owns its session; never raises (failures land on the job row)."""
     with session_factory() as session:
@@ -92,9 +98,11 @@ def run_ingest(
 
             set_stage(session, job, IngestStage.MOVEMENTS)
             movements = detect_and_store(session, company, start, end, threshold_pct)
-            selected = select_for_explanation(movements, max_movements_with_news)
+            selected = select_for_explanation(movements, max_movements_with_news, refresh)
 
             set_stage(session, job, IngestStage.NEWS, movements=len(movements), selected=len(selected))
+            if selected:
+                ensure_peers(session, llm, company)
             news_stats = fetch_news(session, news, selected, company)
 
             set_stage(session, job, IngestStage.EXPLANATIONS, news=_without_errors(news_stats))

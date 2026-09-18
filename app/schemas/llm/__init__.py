@@ -2,5 +2,6 @@
 
 from app.schemas.llm.article_relevance import ArticleRelevance
 from app.schemas.llm.explanation_output import ExplanationOutput
+from app.schemas.llm.peers_output import PeersOutput
 
-__all__ = ["ArticleRelevance", "ExplanationOutput"]
+__all__ = ["ArticleRelevance", "ExplanationOutput", "PeersOutput"]

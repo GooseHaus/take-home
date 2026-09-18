@@ -13,4 +13,5 @@ class PlannedSearch:
     query: str
     start: date
     end: date
+    limit: int
     movement_ids: list[int] = field(default_factory=list)

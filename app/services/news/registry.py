@@ -2,9 +2,11 @@
 
 from app.enums import DriverHint, NewsTier
 from app.services.news.company_tier import CompanyTier
+from app.services.news.industry_tier import IndustryTier
+from app.services.news.macro_tier import MacroTier
 from app.services.news.news_tier_strategy import NewsTierStrategy
 
-NEWS_TIERS: list[NewsTierStrategy] = [CompanyTier()]
+NEWS_TIERS: list[NewsTierStrategy] = [CompanyTier(), IndustryTier(), MacroTier()]
 
 # Which tier to try first given what prices alone suggest (D4). Every tier still runs; this only sets link order,
 # and an article found by two tiers keeps the first one's label.

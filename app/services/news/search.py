@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from sqlalchemy.orm import Session
 
-from app.constants.news import COST_DECIMALS, RESULTS_PER_SEARCH
+from app.constants.news import COST_DECIMALS
 from app.constants.pipeline import NEWS_MAX_WORKERS
 from app.domain import NewsSearchResult, PlannedSearch
 from app.errors import ProviderError
@@ -15,7 +15,7 @@ from app.repositories.articles import get_articles, upsert_articles
 from app.repositories.movements import link_articles
 from app.repositories.news_search_cache import get_cached_searches, save_search
 from app.services.news.news_tier_strategy import NewsTierStrategy
-from app.services.news.registry import ordered_tiers
+from app.services.news.registry import TIER_PRIORITY, ordered_tiers
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,10 @@ def plan_searches(
             scope = strategy.cache_scope(movement, company)
             key = f"{strategy.tier.value}:{scope}:{movement.window_start}:{movement.window_end}"
             search = planned.setdefault(
-                key, PlannedSearch(key, strategy.tier, query, movement.window_start, movement.window_end)
+                key,
+                PlannedSearch(
+                    key, strategy.tier, query, movement.window_start, movement.window_end, strategy.max_results
+                ),
             )
             search.movement_ids.append(movement.id)
     return list(planned.values())
@@ -41,7 +44,7 @@ def plan_searches(
 
 def _run(provider: NewsProvider, search: PlannedSearch) -> NewsSearchResult | ProviderError:
     try:
-        return provider.search(search.query, search.start, search.end, RESULTS_PER_SEARCH)
+        return provider.search(search.query, search.start, search.end, search.limit)
     except ProviderError as exc:
         return exc
 
@@ -75,10 +78,12 @@ def fetch_news(
         stats["searches_run"] += 1
         stats["cost_dollars"] += result.cost_dollars or 0.0
 
-    by_id = {m.id: m for m in movements}
-    for search in planned:  # planned order == tier priority, so the first tier to find an article labels it
-        articles = get_articles(session, article_ids_by_key.get(search.cache_key, []))
-        for movement_id in search.movement_ids:
-            link_articles(session, by_id[movement_id], articles, search.tier)
+    for movement in movements:
+        # Link in this movement's own tier priority: an article found by two tiers keeps the first one's label
+        priority = TIER_PRIORITY[movement.driver_hint]
+        mine = sorted((s for s in planned if movement.id in s.movement_ids), key=lambda s: priority.index(s.tier))
+        for search in mine:
+            articles = get_articles(session, article_ids_by_key.get(search.cache_key, []))
+            link_articles(session, movement, articles, search.tier)
     stats["cost_dollars"] = round(stats["cost_dollars"], COST_DECIMALS)
     return stats

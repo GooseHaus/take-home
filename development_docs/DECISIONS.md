@@ -187,3 +187,31 @@ Choices made while planning and building that a reviewer (or future me) would re
 **Why:** Cheapest moment to do it: three modules to retrofit instead of fifteen. The rules target real duplication risks in the remaining phases (one enum feeding DB + API + LLM schema; one filter model feeding REST + chat) and the seams the brief names (news source, news tier, LLM). `services/prices.py` was split along those lines into a yfinance adapter, two repository modules and a `price_ingest` service.
 
 **Tradeoff:** ~15 minutes of a 4-hour budget on structure rather than features, and more files than a project this size strictly needs. Guard rail: "seams, not speculation" — no abstraction without a variation point the brief implies.
+
+---
+
+## D15 — `refresh` re-explains; caches still hold
+
+**Status:** ✅ Implemented (T2-2).
+
+**Decision:** Ingest skips movements that already have an explanation. `refresh=true` re-selects them, but cached searches are still never repeated — so a refresh costs the LLM calls plus only the searches that are genuinely new.
+
+**Why:** Needed the moment a tier was added: AAPL's explanations had been written from company news alone. Refresh picked up 52 new industry/macro searches while reusing all 23 company searches. Same mechanism covers a prompt or model change.
+
+**Tradeoff:** No way to force a *search* re-run short of deleting cache rows. Fine for historical windows, whose news doesn't change; wrong for a window that includes today.
+
+**Revisit:** Expire cache rows whose window ended less than N days before they were fetched.
+
+---
+
+## D16 — Every tier runs for every selected movement
+
+**Status:** ✅ Implemented (T2-2).
+
+**Decision:** The driver hint (D4) orders tiers and labels shared articles, but does not skip tiers: each of the top-N movements gets company, industry and macro searches (8/5/5 results).
+
+**Why:** The hint is a heuristic; skipping the company search on a "market" day would hide the case where a stock fell on its own news during a sell-off. Letting the LLM see all three tiers, plus the benchmark numbers, produced sensible splits live (AAPL: 17 company / 5 industry / 3 macro). Cost stays small because macro is shared and everything is cached: ~$0.50 for a first ticker, less for later ones.
+
+**Tradeoff:** ~3x the searches of a hint-gated design, and ingest time is dominated by them (~60 s for 75 searches at 4 workers). Measured, accepted.
+
+**Revisit:** Raise `NEWS_MAX_WORKERS` once Exa's rate limit for the account is known; or gate the macro tier on `abs(market move) >= 1%`.
