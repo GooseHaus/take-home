@@ -4,7 +4,7 @@
 
 See also: [CONVENTIONS.md](CONVENTIONS.md) (how code is written here), [ROADMAP.md](ROADMAP.md) (phases, timeboxes, cut lines), [DECISIONS.md](DECISIONS.md) (choices & tradeoffs), [START_HERE.md](START_HERE.md) (live status).
 
-> **Build status (2026-09-18):** T0-1, T1-1, T1-2, T1-3 done (27 tests, ruff clean). Next: T2-1.
+> **Build status (2026-09-18):** T0-1, T1-1, T1-2, Phases 0–2 done (71 tests, ruff clean). Next: Phase 3 — T3-1 ingest + status endpoints.
 
 ---
 
@@ -106,22 +106,26 @@ Ordered by dependency. One commit per ticket.
 
 ### Epic 2 — News & explanations
 
-#### T2-1: NewsProvider + Exa
+#### T2-1: NewsProvider + Exa ✅
 - Protocol `search(query, start, end, limit) -> list[ArticleHit]`; `ExaProvider`; `FakeNewsProvider` for tests. URL dedupe on insert.
 - Exa call shape (D5): `exa.search(query, type="auto", category="news", start_published_date=..., end_published_date=..., num_results=limit, contents={"highlights": True})`. snake_case kwargs; no deprecated params; record `costDollars`.
 - **Done when:** a manual Exa call for a known date returns on-topic, in-window articles.
+- **Shipped:** `providers/news/{news_provider,exa_news_provider}.py`, `domain/{article_hit,news_search_result}.py`, `repositories/articles.py` (URL-deduped upsert), `utils/{urls,text}.py` (tracking-param stripping, snippet cleaning), `constants/news.py`, `ProviderError` (502) / `ProviderNotConfigured` (503), `FakeNewsProvider`. 11 new tests incl. the exact Exa call shape. **Live:** AAPL 2026-07-30→08-01 → 8 in-window hits (Reuters/CNBC/IBD on the earnings guidance miss behind the −7.35% day), $0.007/search, re-upsert creates no duplicates.
 
-#### T2-2: Tiered search
+#### T2-2: Tiered search ✅
 - Query builders for company / industry+peers / macro. Peers via one cached LLM call per ticker. Macro cached by date. Top-N cost guard; tier order from `driver_hint`.
 - **Done when:** a movement ends up with articles tagged by tier; a second ticker reuses macro articles with zero new macro searches.
+- **Shipped:** `IndustryTier` + `MacroTier` registered beside `CompanyTier` (two new files + one registry line — no pipeline change); per-tier result limits (8/5/5 = the 18 articles a prompt can show); `services/peers.py` + `PeersOutput` + peer prompts (one cached LLM call per ticker, failure falls back to the industry string and isn't cached); `refresh` flag on `run_ingest` (D15); links follow each movement's own tier priority. 19 new tests incl. macro sharing across tickers. **Live:** AAPL refresh → 52 new searches / 23 cached, $0.36, 62 s; peers = Samsung, Alphabet, Microsoft, Sony; categories 17 company / 5 industry / 3 macro, every `market`-hinted move → `macro`. MSFT first ingest reused **6 macro searches AAPL had paid for**; 3 of its moves came back `unexplained` rather than invented.
 
-#### T2-3: Explanation
+#### T2-3: Explanation ✅
 - Structured-output call: movement stats + benchmark context + candidate articles → `{summary, category, confidence, article_relevance[]}`. `unexplained` allowed. Writes `explanations` + `movement_articles.relevance`.
 - **Done when:** known earnings day → `company`; known market-wide day → `macro`; both cite URLs.
+- **Shipped:** `LLMClient` Protocol + `OpenAILLMClient` (`chat.completions.parse`, retries, token/latency logging); `schemas/llm/{explanation_output,article_relevance}.py` typed by `ExplanationCategory`; prompts in `app/prompts/explain_movement_{system,user}.md` with a `$placeholder` loader; `services/explain.py` (prompt build split from the network call so the pipeline can parallelise); `repositories/{movements,explanations}.py`; `FakeLLMClient`. Invented article ids are ignored and scores clamped to 0..1. 7 new tests. **Live (gpt-5.4-mini):** AAPL 2026-07-31 −7.35% → `company` 0.98 (Reuters/CNBC/IBD guidance-miss pieces ≥0.93); AAPL 2026-01-20 −3.46% with SPY −2.04% → `macro` 0.72 *using company-tier news only*, citing 2 of 8 articles — the benchmark context (D4) is doing its job.
 
-#### T2-4: Pipeline + jobs
+#### T2-4: Pipeline + jobs ✅
 - `run_ingest(ticker, ...)`: profile → prices → movements → news → explain, updating `ingest_jobs.stage`. Idempotent (skips finished movements). Bounded concurrency across movements. One failure marks that movement, not the job.
 - **Done when:** re-running ingest on AAPL makes no new Exa/OpenAI calls.
+- **Shipped:** `services/pipeline.py` (`run_ingest`: stages committed as they complete, never raises — failures land on the job row), `services/news/` (`NewsTierStrategy` Protocol, `CompanyTier`, `registry.py` with hint-based tier ordering, `search.py` plan → cache check → parallel fetch → link), `repositories/{ingest_jobs,news_search_cache}.py`, `IngestStage` enum, `PlannedSearch`. Network calls fan out over thread pools; **all DB writes stay on the pipeline thread** (SQLite). Per-search and per-movement failures are recorded in `job.detail.errors`, not cached, and retried next ingest. 7 new tests. **Live AAPL 1y:** 40 movements, top 25 selected, 23 newly explained in **28.8 s for $0.16** Exa; re-run **0.8 s, zero paid calls**. Categories: 19 company / 3 macro / 3 industry; every `market`-hinted move came out `macro`.
 
 ### Epic 3 — Data API
 

@@ -1,8 +1,10 @@
 """Builders for test data. Keep seed-shape knowledge here, not scattered through tests."""
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pandas as pd
+
+from app.domain import ArticleHit
 
 
 def trading_days(start: date, count: int) -> list[date]:
@@ -21,3 +23,14 @@ def price_frame(closes: list[float], start: date = date(2026, 1, 5), volumes: li
     return pd.DataFrame(
         {"open": closes, "high": closes, "low": closes, "close": closes, "volume": volumes}, index=index
     )
+
+
+def article_hit(slug: str = "apple-earnings", **overrides) -> ArticleHit:
+    defaults = {
+        "url": f"https://news.example.com/{slug}",
+        "title": slug.replace("-", " ").title(),
+        "source": "news.example.com",
+        "published_at": datetime(2026, 7, 30, tzinfo=UTC),
+        "snippet": f"Snippet for {slug}.",
+    }
+    return ArticleHit(**{**defaults, **overrides})

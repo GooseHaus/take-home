@@ -1,10 +1,10 @@
-# START HERE — Stock Movement Explainer (2026-09-18: Phases 0–1 + conventions retrofit done; next T2-1 Exa provider)
+# START HERE — Stock Movement Explainer (2026-09-18: Phases 0–1, conventions, Phases 0–2 done — all three news tiers live; next Phase 3 data API)
 
 > Living doc. Update the status line and the sections below at the end of every ticket.
 
 ## One-line status
 
-**Phases 0–1 done.** Prices (AAPL + SPY + sector ETF) ingest from yfinance into SQLite; movement detection with z-score, volume ratio, excess returns, driver hint and news window is unit-tested (20 tests) and smoke-tested live (AAPL 1y → 40 movements). Models are one-class-per-file (D10). **T1-3 retrofit done:** code follows [CONVENTIONS.md](CONVENTIONS.md) — constants, enums, Protocol-backed providers, repositories, typed errors, ruff clean, pinned deps (27 tests). **Next: T2-1 Exa news provider.**
+**Phases 0–1 done.** Prices (AAPL + SPY + sector ETF) ingest from yfinance into SQLite; movement detection with z-score, volume ratio, excess returns, driver hint and news window is unit-tested (20 tests) and smoke-tested live (AAPL 1y → 40 movements). Models are one-class-per-file (D10). **T1-3 retrofit done:** code follows [CONVENTIONS.md](CONVENTIONS.md) — constants, enums, Protocol-backed providers, repositories, typed errors, ruff clean, pinned deps (27 tests). **T2-1 done:** Exa news search behind `NewsProvider`, URL-deduped article storage (38 tests). **T2-3 done:** LLM explanations with structured output, prompts as files (45 tests); live: earnings day → `company` 0.98, market sell-off day → `macro` 0.72. **T2-4 done — the core loop is closed:** one call ingests a ticker end-to-end (live AAPL 1y: 28.8 s, $0.16, re-run free). **T2-2 done — Phase 2 complete:** company + industry + macro tiers, LLM-suggested peers, macro searches shared across tickers, `refresh` re-explain (71 tests). Branch `initial-development/T2-news-and-explanations` is ready to push. **Next: Phase 3 — T3-1 ingest/status endpoints, T3-2 ticker data endpoint + filters.**
 
 ## The clock
 
@@ -14,7 +14,7 @@
 |-------|--------|--------|
 | 0 Scaffold | 15 min | ✅ |
 | 1 Prices & movements | 40 min | ✅ |
-| 2 News & explanations | 60 min | ⏳ |
+| 2 News & explanations | 60 min | ✅ |
 | 3 Data API | 35 min | ⏳ |
 | 4 Chat | 45 min | ⏳ |
 | 5 Ship (protected) | 35 min | ⏳ |
@@ -25,6 +25,10 @@
 - **T1-1 models + price ingest** — live: AAPL/SPY/XLK 321 rows each; unknown ticker → `TickerNotFound`.
 - **T1-2 movement detection** — 19 unit tests; live AAPL 1y @2% → 40 movements (23 idiosyncratic / 11 sector / 6 market); biggest 2026-07-31 −7.35%, z −4.1, volume ×2.6.
 - **T1-3 conventions retrofit** — 27 tests, `ruff check` + `ruff format --check` clean; live AAPL run through provider → repositories → detection gives the same 40 movements. *Schema changed (enum columns): delete `data/app.db` if you have an old one (D2).*
+- **T2-1 Exa news provider** — 11 tests (call shape, normalisation, error mapping, dedupe); live search for AAPL's 2026-07-31 drop returned 8 on-topic in-window articles at $0.007.
+- **T2-3 explanation** — 7 tests; live on gpt-5.4-mini both "done when" cases pass (see PLAN.md T2-3).
+- **T2-4 pipeline + jobs** — 7 tests (idempotent re-run, cost guard, partial-failure retry, failed-job path); live AAPL 1y end-to-end, numbers in PLAN.md T2-4.
+- **T2-2 tiers** — 19 tests; live AAPL refresh + MSFT ingest (numbers in PLAN.md T2-2). Local `data/app.db` now holds AAPL and MSFT, 25 explained movements each.
 
 ## Built but UNVERIFIED
 
@@ -38,12 +42,12 @@
 
 ## Immediate next task
 
-**T2-1** — `NewsProvider` protocol + `ExaProvider` + fake (one class per file under `app/services/news/`), then T2-3 explanation and T2-4 pipeline with the company tier only; T2-2 (industry + macro) once the loop is closed.
+**T3-1** — `POST /tickers/{ticker}/ingest` (202 + job, background task, duplicate in-flight returns the existing job, `refresh` flag) and `GET /tickers/{ticker}/status`. Then **T3-2** — `GET /tickers/{ticker}` with a single `MovementFilters` Pydantic model that Phase 4's chat tools will reuse.
 
 ## How we work (match this)
 
 - **Follow [CONVENTIONS.md](CONVENTIONS.md)** — one class per file, constants/enums (no magic values), Protocol-backed providers wired in `dependencies.py`, repositories for DB access, typed errors.
-- **One branch per ticket: `initial-development/<ticket-number>-<description>`** (e.g. `initial-development/T2-1-exa-news-provider`), branched from the previous ticket's branch so the stack stays linear. One commit per ticket.
+- **One branch per epic: `initial-development/T<epic>-<description>`** (e.g. `initial-development/T2-news-and-explanations`), cut from up-to-date `main`. One commit per ticket. The user pushes when the epic is done.
 - **The agent never pushes and never commits to `main`.** The user pushes branches and merges.
 - Per ticket: implement → `ruff format` + `ruff check` → `pytest` → one manual smoke check → update this file → commit.
 - A deviation from PLAN.md gets a `D` entry in DECISIONS.md at the moment it's made — those entries become the submission answers.
