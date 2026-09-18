@@ -42,7 +42,8 @@
 ## How we work (match this)
 
 - **One class per file** (D10) — models, dataclasses, exceptions, providers.
-- One commit per ticket, on `main` (solo, time-boxed — no PR ceremony).
+- **One branch per ticket: `initial-development/<ticket-number>-<description>`** (e.g. `initial-development/T2-1-exa-news-provider`), branched from the previous ticket's branch so the stack stays linear. One commit per ticket.
+- **The agent never pushes and never commits to `main`.** The user pushes branches and merges.
 - Per ticket: implement → `pytest` → one manual smoke check → update this file → commit.
 - A deviation from PLAN.md gets a `D` entry in DECISIONS.md at the moment it's made — those entries become the submission answers.
 - Timebox blown → take the phase's cut line. Phase 5 time is not borrowable.
