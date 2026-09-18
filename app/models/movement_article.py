@@ -1,9 +1,11 @@
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Float, ForeignKey, String
+from sqlalchemy import Float, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
+from app.enums import NewsTier
+from app.models.base import enum_column
 
 if TYPE_CHECKING:
     from app.models.article import Article
@@ -15,7 +17,7 @@ class MovementArticle(Base):
 
     movement_id: Mapped[int] = mapped_column(ForeignKey("movements.id"), primary_key=True)
     article_id: Mapped[int] = mapped_column(ForeignKey("articles.id"), primary_key=True)
-    tier: Mapped[str] = mapped_column(String(16))  # company | industry | macro
+    tier: Mapped[NewsTier] = enum_column(NewsTier)
     relevance: Mapped[float | None] = mapped_column(Float)  # 0..1, set by the explanation pass (D6)
 
     movement: Mapped["Movement"] = relationship(back_populates="article_links")

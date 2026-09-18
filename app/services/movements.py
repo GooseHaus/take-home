@@ -4,19 +4,18 @@ from datetime import date, timedelta
 
 import pandas as pd
 
-from app.domain.detected_movement import DetectedMovement
-
-VOL_WINDOW = 60  # trading days of trailing returns behind the z-score
-VOL_MIN_PERIODS = 20
-VOLUME_WINDOW = 20
-
-# A benchmark "explains" a move when it went the same way, moved meaningfully in its own right,
-# and covers a fair share of the stock's move (high-beta names amplify the market, so not 1:1).
-BENCHMARK_MIN_ABS_PCT = 1.0
-BENCHMARK_MIN_SHARE = 0.4
-
-# Published-date bounds are hard filters in the news API, so catch next-day write-ups too (D5)
-WINDOW_TRAILING_DAYS = 1
+from app.constants.movements import (
+    BENCHMARK_MIN_ABS_PCT,
+    BENCHMARK_MIN_SHARE,
+    PCT_DECIMALS,
+    VOL_MIN_PERIODS,
+    VOL_WINDOW,
+    VOLUME_MIN_PERIODS,
+    VOLUME_WINDOW,
+    WINDOW_TRAILING_DAYS,
+)
+from app.domain import DetectedMovement
+from app.enums import DriverHint
 
 
 def pct_returns(close: pd.Series) -> pd.Series:
@@ -37,13 +36,13 @@ def benchmark_explains(pct: float, benchmark_pct: float | None) -> bool:
     return same_direction and abs(benchmark_pct) >= needed
 
 
-def driver_hint(pct: float, market_pct: float | None, sector_pct: float | None) -> str:
+def driver_hint(pct: float, market_pct: float | None, sector_pct: float | None) -> DriverHint:
     """Which news tier most likely explains the move (D4). A hint for ordering and prompting, never a filter."""
     if benchmark_explains(pct, market_pct):
-        return "market"
+        return DriverHint.MARKET
     if benchmark_explains(pct, sector_pct):
-        return "sector"
-    return "idiosyncratic"
+        return DriverHint.SECTOR
+    return DriverHint.IDIOSYNCRATIC
 
 
 def news_window(day: date, prev_trading_day: date) -> tuple[date, date]:
@@ -74,7 +73,7 @@ def detect_movements(
     close = prices["close"]
     returns = pct_returns(close)
     zscores = trailing_zscore(returns)
-    avg_volume = prices["volume"].shift(1).rolling(VOLUME_WINDOW, min_periods=5).mean()
+    avg_volume = prices["volume"].shift(1).rolling(VOLUME_WINDOW, min_periods=VOLUME_MIN_PERIODS).mean()
     volume_ratio = prices["volume"] / avg_volume
 
     def benchmark_returns(frame: pd.DataFrame | None) -> pd.Series:
@@ -91,7 +90,7 @@ def detect_movements(
         day = dates[i]
         pct = returns.iloc[i]
         # Rounded so float noise (1.9999999) can't drop a day sitting exactly on the threshold
-        if pd.isna(pct) or round(abs(pct), 4) < threshold_pct:
+        if pd.isna(pct) or round(abs(pct), PCT_DECIMALS) < threshold_pct:
             continue
         if (start and day < start) or (end and day > end):
             continue
@@ -104,13 +103,13 @@ def detect_movements(
                 date=day,
                 close=float(close.iloc[i]),
                 prev_close=float(close.iloc[i - 1]),
-                pct_change=round(float(pct), 4),
+                pct_change=round(float(pct), PCT_DECIMALS),
                 zscore=_optional(zscores.iloc[i]),
                 volume_ratio=_optional(volume_ratio.iloc[i]),
                 market_pct_change=market_pct,
                 sector_pct_change=sector_pct,
-                excess_vs_market=None if market_pct is None else round(float(pct) - market_pct, 4),
-                excess_vs_sector=None if sector_pct is None else round(float(pct) - sector_pct, 4),
+                excess_vs_market=None if market_pct is None else round(float(pct) - market_pct, PCT_DECIMALS),
+                excess_vs_sector=None if sector_pct is None else round(float(pct) - sector_pct, PCT_DECIMALS),
                 driver_hint=driver_hint(float(pct), market_pct, sector_pct),
                 window_start=window_start,
                 window_end=window_end,

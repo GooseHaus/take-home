@@ -2,9 +2,9 @@
 
 **Goal:** ticker in → explained major movements out → queryable by REST and chat.
 
-See also: [ROADMAP.md](ROADMAP.md) (phases, timeboxes, cut lines), [DECISIONS.md](DECISIONS.md) (choices & tradeoffs), [START_HERE.md](START_HERE.md) (live status).
+See also: [CONVENTIONS.md](CONVENTIONS.md) (how code is written here), [ROADMAP.md](ROADMAP.md) (phases, timeboxes, cut lines), [DECISIONS.md](DECISIONS.md) (choices & tradeoffs), [START_HERE.md](START_HERE.md) (live status).
 
-> **Build status (2026-09-18):** T0-1, T1-1, T1-2 done (20 tests). Next: T2-1.
+> **Build status (2026-09-18):** T0-1, T1-1, T1-2, T1-3 done (27 tests, ruff clean). Next: T2-1.
 
 ---
 
@@ -13,27 +13,26 @@ See also: [ROADMAP.md](ROADMAP.md) (phases, timeboxes, cut lines), [DECISIONS.md
 ```
 take-home/
   app/
-    main.py            ← FastAPI app, lifespan (create tables), router wiring
-    config.py          ← pydantic-settings; all tunables + keys from .env
-    db.py              ← engine, session dependency
-    models/            ← SQLAlchemy tables, ONE CLASS PER FILE, re-exported from __init__ (D10)
-    domain/            ← plain dataclasses passed between services (one per file)
-    errors/            ← typed exceptions (one per file)
-    schemas.py         ← Pydantic request/response models
-    queries.py         ← read queries shared by REST endpoints AND chat tools
+    main.py              ← FastAPI app, lifespan, the single AppError → HTTP handler
+    config.py            ← pydantic-settings; deployer-tunable values + keys from .env
+    dependencies.py      ← wiring: which adapter backs each Protocol
+    db.py  logging_config.py
+    api/                 ← thin routers (tickers, chat)
     services/
-      prices.py        ← yfinance fetch + company profile
-      movements.py     ← pure detection / z-score / driver hint / news window
-      news.py          ← NewsProvider protocol, ExaProvider, tier query builders
-      explain.py       ← LLM structured explanation
-      pipeline.py      ← orchestrates ingest; idempotent; job status
-      chat.py          ← tool definitions + tool loop
-    api/
-      tickers.py
-      chat.py
-  tests/
+      price_ingest.py    ← provider → repositories for a ticker + its benchmarks
+      movements.py       ← pure detection / z-score / driver hint / news window
+      news/              ← tier strategy classes + registry            (T2-1/T2-2)
+      explain.py  pipeline.py  chat/                                   (T2-3 → T4)
+    repositories/        ← all DB access (prices, companies, movements, …)
+    providers/
+      market_data/       ← MarketDataProvider Protocol + YFinance adapter
+      news/  llm/        ← NewsProvider + Exa, LLMClient + OpenAI      (T2-1, T2-3)
+    models/  domain/  enums/  errors/  schemas/   ← one class per file (D10)
+    constants/           ← fixed values, one module per domain
+    prompts/             ← LLM prompt templates
+  tests/                 ← offline; fakes/ implement the Protocols, factories.py builds seed data
   development_docs/
-  .env.example  requirements.txt  README.md
+  pyproject.toml (ruff + pytest)  requirements.txt  requirements-dev.txt  .env.example
 ```
 
 ## Data model
@@ -100,6 +99,10 @@ Ordered by dependency. One commit per ticket.
 - `detect_movements(prices, market, sector, threshold)` → dataclasses. Close-to-close %, trailing-60d z-score (None during warm-up), excess returns, `driver_hint`, `news_window`.
 - **Done when:** unit tests pass; AAPL 1y gives a plausible count (tens, not hundreds).
 - **Shipped:** `services/movements.py` + 19 unit tests. Live AAPL 1y @2%: **40 movements** (23 idiosyncratic / 11 sector / 6 market). Also stores `volume_ratio` (vs trailing 20d).
+
+#### T1-3: Conventions retrofit ✅
+- Write CONVENTIONS.md (D14) and bring Phase 0–1 code in line.
+- **Shipped:** `app/constants/{market,movements}.py`; `app/enums/` (DriverHint, NewsTier, ExplanationCategory, JobStatus, Direction) + `enum_column()` helper; `MarketDataProvider` Protocol + `YFinanceMarketDataProvider`; `repositories/{prices,companies}.py`; `services/price_ingest.py`; `dependencies.py`; `AppError` base + single exception handler; logging config; ruff + pytest config in `pyproject.toml`; pinned `requirements.txt` + `requirements-dev.txt`; `tests/fakes/`, `tests/factories.py`, `session` fixture. 27 tests. Live AAPL re-run through the new layers: identical 40 movements.
 
 ### Epic 2 — News & explanations
 

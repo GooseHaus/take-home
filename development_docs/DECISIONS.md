@@ -175,3 +175,15 @@ Choices made while planning and building that a reviewer (or future me) would re
 **Tradeoff:** Hand-picked constants, not fitted. They only order searches and inform the prompt, so a wrong hint degrades gracefully.
 
 **Revisit:** Per-ticker beta from a regression.
+
+---
+
+## D14 — Conventions agreed up front; retrofit ticket T1-3
+
+**Status:** ✅ Implemented (T1-3). Rules live in [CONVENTIONS.md](CONVENTIONS.md).
+
+**Decision:** After Phase 1, pause for one ticket to fix the conventions for the rest of the build — constants modules, `StrEnum` vocabularies, Protocol-backed providers wired in one place, repositories for all DB access, typed errors with a single HTTP handler, prompts as files, ruff, pinned dependencies — and bring the existing code in line.
+
+**Why:** Cheapest moment to do it: three modules to retrofit instead of fifteen. The rules target real duplication risks in the remaining phases (one enum feeding DB + API + LLM schema; one filter model feeding REST + chat) and the seams the brief names (news source, news tier, LLM). `services/prices.py` was split along those lines into a yfinance adapter, two repository modules and a `price_ingest` service.
+
+**Tradeoff:** ~15 minutes of a 4-hour budget on structure rather than features, and more files than a project this size strictly needs. Guard rail: "seams, not speculation" — no abstraction without a variation point the brief implies.

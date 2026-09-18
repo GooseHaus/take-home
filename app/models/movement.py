@@ -5,6 +5,8 @@ from sqlalchemy import Date, Float, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
+from app.enums import DriverHint
+from app.models.base import enum_column
 
 if TYPE_CHECKING:
     from app.models.explanation import Explanation
@@ -27,7 +29,7 @@ class Movement(Base):
     sector_pct_change: Mapped[float | None] = mapped_column(Float)
     excess_vs_market: Mapped[float | None] = mapped_column(Float)
     excess_vs_sector: Mapped[float | None] = mapped_column(Float)
-    driver_hint: Mapped[str] = mapped_column(String(16))  # market | sector | idiosyncratic (D4)
+    driver_hint: Mapped[DriverHint] = enum_column(DriverHint)  # (D4)
     window_start: Mapped[dt.date] = mapped_column(Date)  # news search window
     window_end: Mapped[dt.date] = mapped_column(Date)
 

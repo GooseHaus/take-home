@@ -1,23 +1,10 @@
-from datetime import date, timedelta
+from datetime import date
 
-import pandas as pd
 import pytest
 
+from app.enums import DriverHint
 from app.services.movements import benchmark_explains, detect_movements, driver_hint, news_window
-
-
-def trading_days(start: date, count: int) -> list[date]:
-    days, day = [], start
-    while len(days) < count:
-        if day.weekday() < 5:
-            days.append(day)
-        day += timedelta(days=1)
-    return days
-
-
-def frame(closes: list[float], start: date = date(2026, 1, 5), volumes: list[int] | None = None) -> pd.DataFrame:
-    index = pd.Index(trading_days(start, len(closes)), name="date")
-    return pd.DataFrame({"close": closes, "volume": volumes or [1_000] * len(closes)}, index=index)
+from tests.factories import price_frame as frame
 
 
 def test_threshold_is_inclusive_and_symmetric():
@@ -76,13 +63,13 @@ def test_start_end_limit_reporting_but_not_history():
 @pytest.mark.parametrize(
     "pct, market, sector, expected",
     [
-        (-3.0, -2.5, -2.8, "market"),  # everything fell
-        (-6.0, -2.5, None, "market"),  # high-beta amplification: market covers >=40% of the move
-        (-10.0, -1.2, -1.0, "idiosyncratic"),  # small market dip can't explain a 10% drop
-        (-3.0, -0.2, -2.4, "sector"),  # sector sold off, market flat
-        (4.0, -1.5, -2.0, "idiosyncratic"),  # rose against a falling tape
-        (3.0, 0.4, 0.6, "idiosyncratic"),  # benchmarks barely moved
-        (3.0, None, None, "idiosyncratic"),  # no benchmark data
+        (-3.0, -2.5, -2.8, DriverHint.MARKET),  # everything fell
+        (-6.0, -2.5, None, DriverHint.MARKET),  # high-beta amplification: market covers >=40% of the move
+        (-10.0, -1.2, -1.0, DriverHint.IDIOSYNCRATIC),  # small market dip can't explain a 10% drop
+        (-3.0, -0.2, -2.4, DriverHint.SECTOR),  # sector sold off, market flat
+        (4.0, -1.5, -2.0, DriverHint.IDIOSYNCRATIC),  # rose against a falling tape
+        (3.0, 0.4, 0.6, DriverHint.IDIOSYNCRATIC),  # benchmarks barely moved
+        (3.0, None, None, DriverHint.IDIOSYNCRATIC),  # no benchmark data
     ],
 )
 def test_driver_hint(pct, market, sector, expected):
@@ -101,7 +88,7 @@ def test_excess_returns_and_benchmark_alignment():
     assert move.market_pct_change == pytest.approx(-2.0)
     assert move.excess_vs_market == pytest.approx(-1.0)
     assert move.excess_vs_sector == pytest.approx(-2.5)
-    assert move.driver_hint == "market"
+    assert move.driver_hint is DriverHint.MARKET
 
 
 def test_missing_benchmark_day_gives_none_not_error():

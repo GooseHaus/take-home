@@ -5,7 +5,8 @@ from sqlalchemy import DateTime, Float, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
-from app.models.base import utcnow
+from app.enums import ExplanationCategory
+from app.models.base import enum_column, utcnow
 
 if TYPE_CHECKING:
     from app.models.movement import Movement
@@ -16,7 +17,7 @@ class Explanation(Base):
 
     movement_id: Mapped[int] = mapped_column(ForeignKey("movements.id"), primary_key=True)
     summary: Mapped[str] = mapped_column(Text)
-    category: Mapped[str] = mapped_column(String(16))  # company | industry | macro | unexplained
+    category: Mapped[ExplanationCategory] = enum_column(ExplanationCategory)
     confidence: Mapped[float] = mapped_column(Float)
     model: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
