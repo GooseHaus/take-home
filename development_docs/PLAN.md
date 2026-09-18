@@ -4,7 +4,7 @@
 
 See also: [CONVENTIONS.md](CONVENTIONS.md) (how code is written here), [ROADMAP.md](ROADMAP.md) (phases, timeboxes, cut lines), [DECISIONS.md](DECISIONS.md) (choices & tradeoffs), [START_HERE.md](START_HERE.md) (live status).
 
-> **Build status (2026-09-18):** T0-1, T1-1, T1-2, Phases 0–2 done (71 tests, ruff clean). Next: Phase 3 — T3-1 ingest + status endpoints.
+> **Build status (2026-09-18):** T0-1, T1-1, T1-2, Phases 0–3 done (107 tests, ruff clean). Next: Phase 4 — T4-1 chat tools + loop.
 
 ---
 
@@ -129,12 +129,13 @@ Ordered by dependency. One commit per ticket.
 
 ### Epic 3 — Data API
 
-#### T3-1: Ingest + status endpoints
+#### T3-1: Ingest + status endpoints ✅
 - `POST /tickers/{ticker}/ingest` (body: period or start/end, threshold) → 202; `GET /tickers/{ticker}/status`. Duplicate in-flight ingest returns the existing job.
 
-#### T3-2: Ticker data endpoint + filters
+#### T3-2: Ticker data endpoint + filters ✅
 - `GET /tickers/{ticker}` with the filter set in ROADMAP Phase 3; queries live in `queries.py`. `GET /tickers` lists ingested tickers. `GET /tickers/{ticker}/movements/{date}`.
 - **Done when:** API tests cover each filter and each error path.
+- **Shipped (T3-1 + T3-2, one commit — they share the router and its tests):** `api/tickers.py` (5 thin routes); `schemas/movement_filters.py` — **the single filter definition** (dates, direction, min_abs_change, category, driver_hint, min_confidence, explained_only, tier, min_relevance, sort, limit/offset) that Phase 4's chat tools will reuse; `schemas/api/*` (10 response/request models, one per file); `repositories/movement_queries.py` (shared read side, eager-loaded, total count for pagination); `services/ticker_data.py` (ORM → API shapes, also for chat) and `services/ingest_requests.py`; errors `InvalidTicker` 422 / `TickerNotIngested` 404 / `MovementNotFound` 404. Movement-level filters choose movements; article-level filters (`tier`, `min_relevance`) narrow the articles inside them. Duplicate in-flight ingest → 200 with the existing job; missing API key → 503 before a job row exists. 36 new tests. **Live over HTTP** against the AAPL/MSFT data: filters, sort, pagination, single movement, all error paths, and a free re-ingest via `POST`. *Deviation:* not-yet-ingested is **404** (`ticker_not_ingested`, message names the ingest endpoint), not the 409 sketched in ROADMAP — the resource doesn't exist, nothing conflicts.
 
 ### Epic 4 — Chat
 

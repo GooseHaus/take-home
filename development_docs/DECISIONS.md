@@ -215,3 +215,17 @@ Choices made while planning and building that a reviewer (or future me) would re
 **Tradeoff:** ~3x the searches of a hint-gated design, and ingest time is dominated by them (~60 s for 75 searches at 4 workers). Measured, accepted.
 
 **Revisit:** Raise `NEWS_MAX_WORKERS` once Exa's rate limit for the account is known; or gate the macro tier on `abs(market move) >= 1%`.
+
+---
+
+## D17 — One `MovementFilters` model; article filters narrow articles, not movements
+
+**Status:** ✅ Implemented (T3-2).
+
+**Decision:** A single Pydantic model defines every filter. `GET /tickers/{ticker}` reads it from the query string (via a `TickerDataQuery` subclass that adds `include_prices` / `include_news`), the repository takes it as input, and the chat tools will generate their JSON schema from it. Movement-level fields select movements; `tier` and `min_relevance` only narrow the article list inside each returned movement.
+
+**Why:** Filters were the biggest duplication risk in the project — REST params, chat-tool args and SQL would otherwise be three hand-synced copies. Enum-typed fields give validation, OpenAPI docs and tool schemas for free. Keeping article filters from dropping movements means `min_relevance=0.5` reads as "show me only the cited articles", not "hide moves with weak evidence" — which is what `min_confidence` is for.
+
+**Gotcha recorded:** FastAPI only parses a Pydantic model from the query string when it is the endpoint's *sole* query parameter; adding two loose `Query()` flags beside it silently turned the model into a required field. Hence the subclass.
+
+**Tradeoff:** One response carries prices + movements + articles, so it can be large (AAPL 1y ≈ 320 bars + 40 movements); `include_prices=false`, `include_news=false`, date bounds and pagination are the levers. Pagination applies to movements only, not prices.

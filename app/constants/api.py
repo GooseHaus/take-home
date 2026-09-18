@@ -1,0 +1,8 @@
+"""API constants."""
+
+TICKER_PATTERN = r"^[A-Z0-9][A-Z0-9.\-]{0,11}$"
+
+DEFAULT_PAGE_SIZE = 50
+MAX_PAGE_SIZE = 200
+
+MAX_LOOKBACK_DAYS = 365 * 5
