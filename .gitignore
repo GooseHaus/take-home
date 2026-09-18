@@ -34,5 +34,5 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# Claude Code local settings
-.claude/settings.local.json
+# Claude Code local tooling (launch config, local settings)
+.claude/

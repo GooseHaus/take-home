@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.api import tickers
 from app.config import get_settings
 from app.db import init_db
 from app.errors import AppError
@@ -21,6 +22,8 @@ app = FastAPI(
     description="Explains major daily stock price movements using company, industry and macro news.",
     lifespan=lifespan,
 )
+
+app.include_router(tickers.router)
 
 
 @app.exception_handler(AppError)

@@ -3,10 +3,18 @@
 
 from functools import lru_cache
 
+from sqlalchemy.orm import sessionmaker
+
 from app.config import get_settings
+from app.db import SessionLocal
 from app.providers.llm import LLMClient, OpenAILLMClient
 from app.providers.market_data import MarketDataProvider, YFinanceMarketDataProvider
 from app.providers.news import ExaNewsProvider, NewsProvider
+
+
+def get_session_factory() -> sessionmaker:
+    """For background work that outlives the request and so must open its own sessions."""
+    return SessionLocal
 
 
 @lru_cache
