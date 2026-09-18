@@ -1,10 +1,10 @@
-# START HERE — Stock Movement Explainer (2026-09-18: Phases 0–1, conventions, T2-1 + T2-3 done; next T2-4 pipeline)
+# START HERE — Stock Movement Explainer (2026-09-18: Phases 0–1, conventions, T2-1, T2-3, T2-4 done — core loop closed; next T2-2 tiers)
 
 > Living doc. Update the status line and the sections below at the end of every ticket.
 
 ## One-line status
 
-**Phases 0–1 done.** Prices (AAPL + SPY + sector ETF) ingest from yfinance into SQLite; movement detection with z-score, volume ratio, excess returns, driver hint and news window is unit-tested (20 tests) and smoke-tested live (AAPL 1y → 40 movements). Models are one-class-per-file (D10). **T1-3 retrofit done:** code follows [CONVENTIONS.md](CONVENTIONS.md) — constants, enums, Protocol-backed providers, repositories, typed errors, ruff clean, pinned deps (27 tests). **T2-1 done:** Exa news search behind `NewsProvider`, URL-deduped article storage (38 tests). **T2-3 done:** LLM explanations with structured output, prompts as files (45 tests); live: earnings day → `company` 0.98, market sell-off day → `macro` 0.72. **Next: T2-4 pipeline + jobs (company tier), then T2-2 tiers.**
+**Phases 0–1 done.** Prices (AAPL + SPY + sector ETF) ingest from yfinance into SQLite; movement detection with z-score, volume ratio, excess returns, driver hint and news window is unit-tested (20 tests) and smoke-tested live (AAPL 1y → 40 movements). Models are one-class-per-file (D10). **T1-3 retrofit done:** code follows [CONVENTIONS.md](CONVENTIONS.md) — constants, enums, Protocol-backed providers, repositories, typed errors, ruff clean, pinned deps (27 tests). **T2-1 done:** Exa news search behind `NewsProvider`, URL-deduped article storage (38 tests). **T2-3 done:** LLM explanations with structured output, prompts as files (45 tests); live: earnings day → `company` 0.98, market sell-off day → `macro` 0.72. **T2-4 done — the core loop is closed:** one call ingests a ticker end-to-end (live AAPL 1y: 28.8 s, $0.16, re-run free). **Next: T2-2 industry + macro tiers.**
 
 ## The clock
 
@@ -14,7 +14,7 @@
 |-------|--------|--------|
 | 0 Scaffold | 15 min | ✅ |
 | 1 Prices & movements | 40 min | ✅ |
-| 2 News & explanations | 60 min | 🟡 T2-1, T2-3 done |
+| 2 News & explanations | 60 min | 🟡 T2-1, T2-3, T2-4 done |
 | 3 Data API | 35 min | ⏳ |
 | 4 Chat | 45 min | ⏳ |
 | 5 Ship (protected) | 35 min | ⏳ |
@@ -27,6 +27,7 @@
 - **T1-3 conventions retrofit** — 27 tests, `ruff check` + `ruff format --check` clean; live AAPL run through provider → repositories → detection gives the same 40 movements. *Schema changed (enum columns): delete `data/app.db` if you have an old one (D2).*
 - **T2-1 Exa news provider** — 11 tests (call shape, normalisation, error mapping, dedupe); live search for AAPL's 2026-07-31 drop returned 8 on-topic in-window articles at $0.007.
 - **T2-3 explanation** — 7 tests; live on gpt-5.4-mini both "done when" cases pass (see PLAN.md T2-3).
+- **T2-4 pipeline + jobs** — 7 tests (idempotent re-run, cost guard, partial-failure retry, failed-job path); live AAPL 1y end-to-end, numbers in PLAN.md T2-4.
 
 ## Built but UNVERIFIED
 
@@ -40,7 +41,7 @@
 
 ## Immediate next task
 
-**T2-4** — `services/pipeline.py` + `repositories/ingest_jobs.py`: profile → prices → movements → news → explain with job stages, idempotent, network calls parallelised and DB writes on one thread. News tiers enter as a registry of strategy classes holding only `CompanyTier`; **T2-2** then adds `IndustryTier` + `MacroTier` and the search cache.
+**T2-2** — add `IndustryTier` (industry string + LLM-suggested peers cached on `companies.peers`) and `MacroTier` (ticker-independent, so its cache key is shared across tickers) to `services/news/registry.py`. Done when a second ticker reuses macro searches with zero new macro calls.
 
 ## How we work (match this)
 

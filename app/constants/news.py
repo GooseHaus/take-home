@@ -6,6 +6,7 @@ EXA_CATEGORY = "news"
 EXA_CONTENTS = {"highlights": True}
 
 RESULTS_PER_SEARCH = 8
+COST_DECIMALS = 4
 
 # Highlights arrive with page chrome and ragged whitespace; snippets are cleaned and capped before storage
 SNIPPET_MAX_CHARS = 600

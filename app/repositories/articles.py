@@ -23,3 +23,11 @@ def upsert_articles(session: Session, hits: list[ArticleHit]) -> list[Article]:
             session.add(existing[hit.url])
     session.flush()  # assign ids
     return [existing[url] for url in urls]
+
+
+def get_articles(session: Session, article_ids: list[int]) -> list[Article]:
+    """Articles in the order of `article_ids` (provider ranking), skipping ids that no longer exist."""
+    if not article_ids:
+        return []
+    by_id = {a.id: a for a in session.scalars(select(Article).where(Article.id.in_(article_ids)))}
+    return [by_id[i] for i in article_ids if i in by_id]

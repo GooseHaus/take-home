@@ -4,7 +4,7 @@
 
 See also: [CONVENTIONS.md](CONVENTIONS.md) (how code is written here), [ROADMAP.md](ROADMAP.md) (phases, timeboxes, cut lines), [DECISIONS.md](DECISIONS.md) (choices & tradeoffs), [START_HERE.md](START_HERE.md) (live status).
 
-> **Build status (2026-09-18):** T0-1, T1-1, T1-2, T1-3, T2-1, T2-3 done (45 tests, ruff clean). Next: T2-4 pipeline (company tier), then T2-2.
+> **Build status (2026-09-18):** T0-1, T1-1, T1-2, T1-3, T2-1, T2-3, T2-4 done (52 tests, ruff clean). Next: T2-2 industry + macro tiers.
 
 ---
 
@@ -121,9 +121,10 @@ Ordered by dependency. One commit per ticket.
 - **Done when:** known earnings day → `company`; known market-wide day → `macro`; both cite URLs.
 - **Shipped:** `LLMClient` Protocol + `OpenAILLMClient` (`chat.completions.parse`, retries, token/latency logging); `schemas/llm/{explanation_output,article_relevance}.py` typed by `ExplanationCategory`; prompts in `app/prompts/explain_movement_{system,user}.md` with a `$placeholder` loader; `services/explain.py` (prompt build split from the network call so the pipeline can parallelise); `repositories/{movements,explanations}.py`; `FakeLLMClient`. Invented article ids are ignored and scores clamped to 0..1. 7 new tests. **Live (gpt-5.4-mini):** AAPL 2026-07-31 −7.35% → `company` 0.98 (Reuters/CNBC/IBD guidance-miss pieces ≥0.93); AAPL 2026-01-20 −3.46% with SPY −2.04% → `macro` 0.72 *using company-tier news only*, citing 2 of 8 articles — the benchmark context (D4) is doing its job.
 
-#### T2-4: Pipeline + jobs
+#### T2-4: Pipeline + jobs ✅
 - `run_ingest(ticker, ...)`: profile → prices → movements → news → explain, updating `ingest_jobs.stage`. Idempotent (skips finished movements). Bounded concurrency across movements. One failure marks that movement, not the job.
 - **Done when:** re-running ingest on AAPL makes no new Exa/OpenAI calls.
+- **Shipped:** `services/pipeline.py` (`run_ingest`: stages committed as they complete, never raises — failures land on the job row), `services/news/` (`NewsTierStrategy` Protocol, `CompanyTier`, `registry.py` with hint-based tier ordering, `search.py` plan → cache check → parallel fetch → link), `repositories/{ingest_jobs,news_search_cache}.py`, `IngestStage` enum, `PlannedSearch`. Network calls fan out over thread pools; **all DB writes stay on the pipeline thread** (SQLite). Per-search and per-movement failures are recorded in `job.detail.errors`, not cached, and retried next ingest. 7 new tests. **Live AAPL 1y:** 40 movements, top 25 selected, 23 newly explained in **28.8 s for $0.16** Exa; re-run **0.8 s, zero paid calls**. Categories: 19 company / 3 macro / 3 industry; every `market`-hinted move came out `macro`.
 
 ### Epic 3 — Data API
 
