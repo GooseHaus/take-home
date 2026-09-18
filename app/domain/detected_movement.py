@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from datetime import date
 
+from app.enums import DriverHint
+
 
 @dataclass
 class DetectedMovement:
@@ -16,6 +18,6 @@ class DetectedMovement:
     sector_pct_change: float | None
     excess_vs_market: float | None
     excess_vs_sector: float | None
-    driver_hint: str
+    driver_hint: DriverHint
     window_start: date
     window_end: date

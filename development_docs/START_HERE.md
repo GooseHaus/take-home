@@ -1,10 +1,10 @@
-# START HERE — Stock Movement Explainer (2026-09-18: Phases 0–1 done; next T2-1 Exa provider)
+# START HERE — Stock Movement Explainer (2026-09-18: Phases 0–1 + conventions retrofit done; next T2-1 Exa provider)
 
 > Living doc. Update the status line and the sections below at the end of every ticket.
 
 ## One-line status
 
-**Phases 0–1 done.** Prices (AAPL + SPY + sector ETF) ingest from yfinance into SQLite; movement detection with z-score, volume ratio, excess returns, driver hint and news window is unit-tested (20 tests) and smoke-tested live (AAPL 1y → 40 movements). Models are one-class-per-file (D10). **Next: T2-1 Exa news provider.**
+**Phases 0–1 done.** Prices (AAPL + SPY + sector ETF) ingest from yfinance into SQLite; movement detection with z-score, volume ratio, excess returns, driver hint and news window is unit-tested (20 tests) and smoke-tested live (AAPL 1y → 40 movements). Models are one-class-per-file (D10). **T1-3 retrofit done:** code follows [CONVENTIONS.md](CONVENTIONS.md) — constants, enums, Protocol-backed providers, repositories, typed errors, ruff clean, pinned deps (27 tests). **Next: T2-1 Exa news provider.**
 
 ## The clock
 
@@ -24,6 +24,7 @@
 - **T0-1 scaffold** — `pytest` 1 passed; `/health` → 200 with `exa_configured` / `openai_configured` true; `data/app.db` created and gitignored.
 - **T1-1 models + price ingest** — live: AAPL/SPY/XLK 321 rows each; unknown ticker → `TickerNotFound`.
 - **T1-2 movement detection** — 19 unit tests; live AAPL 1y @2% → 40 movements (23 idiosyncratic / 11 sector / 6 market); biggest 2026-07-31 −7.35%, z −4.1, volume ×2.6.
+- **T1-3 conventions retrofit** — 27 tests, `ruff check` + `ruff format --check` clean; live AAPL run through provider → repositories → detection gives the same 40 movements. *Schema changed (enum columns): delete `data/app.db` if you have an old one (D2).*
 
 ## Built but UNVERIFIED
 
@@ -41,13 +42,13 @@
 
 ## How we work (match this)
 
-- **One class per file** (D10) — models, dataclasses, exceptions, providers.
+- **Follow [CONVENTIONS.md](CONVENTIONS.md)** — one class per file, constants/enums (no magic values), Protocol-backed providers wired in `dependencies.py`, repositories for DB access, typed errors.
 - **One branch per ticket: `initial-development/<ticket-number>-<description>`** (e.g. `initial-development/T2-1-exa-news-provider`), branched from the previous ticket's branch so the stack stays linear. One commit per ticket.
 - **The agent never pushes and never commits to `main`.** The user pushes branches and merges.
-- Per ticket: implement → `pytest` → one manual smoke check → update this file → commit.
+- Per ticket: implement → `ruff format` + `ruff check` → `pytest` → one manual smoke check → update this file → commit.
 - A deviation from PLAN.md gets a `D` entry in DECISIONS.md at the moment it's made — those entries become the submission answers.
 - Timebox blown → take the phase's cut line. Phase 5 time is not borrowable.
 
 ## Read order for a fresh agent
 
-1. This file → 2. [PLAN.md](PLAN.md) (tickets, data model, layout) → 3. [DECISIONS.md](DECISIONS.md) → 4. [ROADMAP.md](ROADMAP.md) for phase goals and cut lines.
+1. This file → 2. [CONVENTIONS.md](CONVENTIONS.md) → 3. [PLAN.md](PLAN.md) (tickets, data model, layout) → 4. [DECISIONS.md](DECISIONS.md) → 5. [ROADMAP.md](ROADMAP.md) for phase goals and cut lines.

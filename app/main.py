@@ -1,13 +1,17 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.db import init_db
+from app.errors import AppError
+from app.logging_config import configure_logging
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    configure_logging(get_settings().log_level)
     init_db()
     yield
 
@@ -17,6 +21,12 @@ app = FastAPI(
     description="Explains major daily stock price movements using company, industry and macro news.",
     lifespan=lifespan,
 )
+
+
+@app.exception_handler(AppError)
+async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
+    """The single place domain errors become HTTP responses; services never raise HTTPException."""
+    return JSONResponse(status_code=exc.status_code, content={"error": {"code": exc.code, "message": exc.message}})
 
 
 @app.get("/health")

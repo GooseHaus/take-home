@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///data/app.db"
     move_threshold_pct: float = 2.0
     max_movements_with_news: int = 25
+    log_level: str = "INFO"
 
 
 @lru_cache
