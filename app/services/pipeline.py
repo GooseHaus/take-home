@@ -22,7 +22,7 @@ from app.providers.market_data import MarketDataProvider
 from app.providers.news import NewsProvider
 from app.repositories.explanations import save_explanation
 from app.repositories.ingest_jobs import finish_job, set_stage
-from app.repositories.movements import upsert_movements
+from app.repositories.movements import delete_undetected_movements, upsert_movements
 from app.repositories.prices import load_price_frame
 from app.schemas.llm import ExplanationOutput
 from app.services.explain import build_user_prompt, prompt_articles, request_explanation
@@ -59,6 +59,7 @@ def detect_and_store(
     prices, market = frames[0], frames[1]
     sector = frames[2] if len(frames) > 2 else None
     detected = detect_movements(prices, market, sector, threshold_pct, start, end, load_peer_returns(session, peers))
+    delete_undetected_movements(session, company.ticker, start, end, {m.date for m in detected})
     return upsert_movements(session, company.ticker, detected)
 
 
@@ -139,11 +140,25 @@ def run_ingest(
             )
         except AppError as exc:
             session.rollback()
-            finish_job(session, job, error=exc.message)
+            _record_failure(session_factory, job_id, exc.message)
         except Exception as exc:
+            # The detail goes to the log. The job row is public, and a database error's text includes SQL and values.
             logger.exception("ingest %s crashed", ticker)
             session.rollback()
-            finish_job(session, job, error=f"{type(exc).__name__}: {exc}")
+            _record_failure(session_factory, job_id, f"Unexpected {type(exc).__name__}. See the server log.")
+
+
+def _record_failure(session_factory: sessionmaker, job_id: int, message: str) -> None:
+    """Mark the job failed using a fresh session, and never raise.
+
+    The session that failed may be unusable, and if this write fails too the job would stay active and block the
+    ticker. A job that still can't be closed is picked up by `fail_interrupted_jobs` at the next start.
+    """
+    try:
+        with session_factory() as session:
+            finish_job(session, session.get(IngestJob, job_id), error=message)
+    except Exception:
+        logger.exception("could not record the failure of ingest job %s", job_id)
 
 
 def _without_errors(stats: dict) -> dict:

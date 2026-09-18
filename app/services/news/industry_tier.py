@@ -1,4 +1,6 @@
-from app.constants.news import INDUSTRY_RESULTS, MAX_PEERS
+import hashlib
+
+from app.constants.news import INDUSTRY_RESULTS, MAX_PEERS, QUERY_DIGEST_CHARS
 from app.enums import NewsTier
 from app.models import Company, Movement
 from app.services.peers import company_peers
@@ -18,5 +20,7 @@ class IndustryTier:
         return f"{subject} news" + (f", including {', '.join(peers)}" if peers else "")
 
     def cache_scope(self, movement: Movement, company: Company) -> str:
-        # Peers are chosen per ticker, so two tickers in one industry don't necessarily share a query
-        return company.ticker
+        # The query names the peers. If they change (or were unavailable the first time), results cached for the
+        # old query must not be reused, so a digest of the query is part of the key.
+        query = self.build_query(movement, company) or ""
+        return f"{company.ticker}:{hashlib.sha1(query.encode()).hexdigest()[:QUERY_DIGEST_CHARS]}"

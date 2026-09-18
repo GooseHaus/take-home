@@ -6,6 +6,7 @@ from app.models import IngestJob
 from app.models.base import utcnow
 
 ACTIVE_STATUSES = (JobStatus.PENDING, JobStatus.RUNNING)
+INTERRUPTED_MESSAGE = "The server stopped before this ingest finished. Post the ingest again; finished work is kept."
 
 
 def create_job(session: Session, ticker: str, params: dict) -> IngestJob:
@@ -41,3 +42,18 @@ def finish_job(session: Session, job: IngestJob, error: str | None = None, **det
     job.detail = {**(job.detail or {}), **detail}
     job.finished_at = utcnow()
     session.commit()
+
+
+def fail_interrupted_jobs(session: Session) -> int:
+    """Close jobs left pending or running by a previous process.
+
+    Jobs run inside the API process (D7), so at startup nothing can still be working on them. Left open they would
+    block every later ingest of the same ticker, because an active job is returned instead of starting a new one.
+    """
+    jobs = list(session.scalars(select(IngestJob).where(IngestJob.status.in_(ACTIVE_STATUSES))))
+    for job in jobs:
+        job.status = JobStatus.FAILED
+        job.error = INTERRUPTED_MESSAGE
+        job.finished_at = utcnow()
+    session.commit()
+    return len(jobs)

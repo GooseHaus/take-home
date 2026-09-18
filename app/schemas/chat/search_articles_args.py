@@ -7,7 +7,9 @@ from app.enums import NewsTier
 
 
 class SearchArticlesArgs(BaseModel):
-    query: str = Field(description="Keyword or short phrase to find in article titles and excerpts, e.g. 'tariff'")
+    query: str = Field(
+        min_length=2, description="Keyword or short phrase to find in article titles and excerpts, e.g. 'tariff'"
+    )
     ticker: str | None = Field(None, description="Only articles linked to this ticker's movements")
     start: date | None = Field(None, description="Earliest publication date")
     end: date | None = Field(None, description="Latest publication date")

@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.api.responses import CONVERSATION_NOT_FOUND, PROVIDER_UNAVAILABLE
 from app.config import Settings, get_settings
 from app.db import get_session
 from app.dependencies import get_llm_client
@@ -13,7 +14,12 @@ from app.services.chat import chat_service
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
-@router.post("", response_model=ChatResponse, summary="Ask questions about the stored movements and news")
+@router.post(
+    "",
+    response_model=ChatResponse,
+    summary="Ask questions about the stored movements and news",
+    responses=CONVERSATION_NOT_FOUND | PROVIDER_UNAVAILABLE,
+)
 def chat(
     request: ChatRequest,
     session: Annotated[Session, Depends(get_session)],
@@ -26,6 +32,11 @@ def chat(
     return chat_service.chat(session, llm, settings, request)
 
 
-@router.get("/{conversation_id}", response_model=list[ChatMessageResponse], summary="The questions and answers so far")
+@router.get(
+    "/{conversation_id}",
+    response_model=list[ChatMessageResponse],
+    summary="The questions and answers so far",
+    responses=CONVERSATION_NOT_FOUND,
+)
 def get_conversation(conversation_id: str, session: Annotated[Session, Depends(get_session)]):
     return chat_service.get_conversation(session, conversation_id)

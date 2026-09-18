@@ -1,11 +1,12 @@
 from dataclasses import asdict
+from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.domain import DetectedMovement
 from app.enums import NewsTier
-from app.models import Article, Movement, MovementArticle
+from app.models import Article, Explanation, Movement, MovementArticle
 
 
 def upsert_movements(session: Session, ticker: str, detected: list[DetectedMovement]) -> list[Movement]:
@@ -39,3 +40,26 @@ def linked_articles(session: Session, movement: Movement) -> list[tuple[Movement
         .order_by(Article.published_at, Article.id)
     ).all()
     return [(link, article) for link, article in rows]
+
+
+def delete_undetected_movements(session: Session, ticker: str, start: date, end: date, detected: set[date]) -> int:
+    """Remove movements in [start, end] that the latest detection did not produce, e.g. after a higher threshold.
+
+    Explained movements are kept: they were paid for, and the API can still filter them out with `min_abs_change`.
+    """
+    explained = select(Explanation.movement_id)
+    stale = list(
+        session.scalars(
+            select(Movement.id).where(
+                Movement.ticker == ticker,
+                Movement.date >= start,
+                Movement.date <= end,
+                Movement.date.not_in(detected),
+                Movement.id.not_in(explained),
+            )
+        )
+    )
+    if stale:
+        session.execute(delete(MovementArticle).where(MovementArticle.movement_id.in_(stale)))
+        session.execute(delete(Movement).where(Movement.id.in_(stale)))
+    return len(stale)

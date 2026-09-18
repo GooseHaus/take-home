@@ -6,7 +6,7 @@ import yfinance as yf
 
 from app.constants.market import SECTOR_ETFS
 from app.domain import Profile
-from app.errors import TickerNotFound
+from app.errors import ProviderError, TickerNotFound
 
 logger = logging.getLogger(__name__)
 
@@ -16,15 +16,18 @@ PRICE_COLUMNS = ["open", "high", "low", "close", "volume"]
 class YFinanceMarketDataProvider:
     def fetch_history(self, ticker: str, start: date, end: date) -> pd.DataFrame:
         # auto_adjust=True: split/dividend-adjusted, so a 4:1 split isn't detected as a -75% "movement" (D12)
-        df = yf.Ticker(ticker).history(
-            start=start,
-            end=end + timedelta(days=1),  # yfinance end is exclusive
-            interval="1d",
-            auto_adjust=True,
-        )
+        try:
+            df = yf.Ticker(ticker).history(
+                start=start,
+                end=end + timedelta(days=1),  # yfinance end is exclusive
+                interval="1d",
+                auto_adjust=True,
+            )
+        except Exception as exc:
+            raise ProviderError(f"yfinance failed for '{ticker}': {exc}") from exc
         if df.empty:
             raise TickerNotFound(f"No price data for '{ticker}'")
-        df = df.rename(columns=str.lower)[PRICE_COLUMNS].dropna(subset=["close"])
+        df = df.rename(columns=str.lower)[PRICE_COLUMNS].dropna(subset=["close"]).fillna({"volume": 0})
         df.index = pd.Index([ts.date() for ts in df.index], name="date")
         return df
 

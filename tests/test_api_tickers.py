@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from app.constants.market import MARKET_TICKER
 from app.dependencies import get_llm_client, get_market_data_provider, get_news_provider
 from app.domain import Profile
-from app.enums import ExplanationCategory
+from app.enums import ExplanationCategory, JobStatus
 from app.errors import ProviderNotConfigured
 from app.main import app
 from app.repositories.ingest_jobs import create_job
@@ -209,3 +209,23 @@ def test_list_tickers(seeded):
     (summary,) = seeded.get("/tickers").json()
     assert summary["company"]["ticker"] == "ACME" and summary["movement_count"] == 3
     assert (summary["first_price_date"], summary["last_price_date"]) == ("2026-01-05", "2026-01-12")
+
+
+def test_a_job_left_running_by_a_restart_is_closed_at_startup(session):
+    stale = create_job(session, "ACME", {})
+    stale.status = JobStatus.RUNNING
+    session.commit()
+
+    with TestClient(app) as restarted:  # entering the client runs the app's startup
+        status = restarted.get("/tickers/ACME/status").json()
+    assert status["status"] == "failed" and "Post the ingest again" in status["error"]
+    assert status["finished_at"] is not None
+
+
+def test_a_ticker_with_an_interrupted_job_can_be_ingested_again(client, session):
+    stale = create_job(session, "ACME", {})
+    session.commit()
+    with TestClient(app):  # startup closes the stale job
+        pass
+    response = client.post("/tickers/ACME/ingest")
+    assert response.status_code == 202 and response.json()["id"] != stale.id

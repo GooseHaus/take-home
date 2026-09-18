@@ -19,8 +19,8 @@ from tests.factories import price_frame
 from tests.fakes.fake_llm_client import FakeLLMClient
 from tests.fakes.fake_market_data_provider import FakeMarketDataProvider
 from tests.fakes.fake_news_provider import FakeNewsProvider
+from tests.pipeline_helpers import CLOSES, ingest
 from tests.seed import DOWN_DAY, UP_DAY, seed_ticker
-from tests.test_pipeline import CLOSES, ingest
 
 START, END = date(2026, 1, 5), date(2026, 1, 31)
 
