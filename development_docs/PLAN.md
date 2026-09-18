@@ -2,7 +2,7 @@
 
 Tickets in dependency order, with what shipped and the results of the live checks. Phases and cut lines are in [ROADMAP.md](ROADMAP.md), code rules in [CONVENTIONS.md](CONVENTIONS.md), reasoning in [DECISIONS.md](DECISIONS.md).
 
-Status: all tickets done. 121 tests, ruff clean, CI green. The demo video and the written answers are the author's.
+Status: all tickets done. 131 tests, ruff clean. The demo video and the written answers are the author's.
 
 ## Data model
 
@@ -39,7 +39,7 @@ All tests are offline and need no keys.
 |-------|--------|
 | Pure functions | Movement detection: threshold edges, z-score warm-up, driver hint, weekend news window |
 | Providers and repositories | Exa call shape, result normalising, URL dedupe, price upsert, enum columns |
-| Pipeline | Full run with fakes, free re-run, cost limit, partial failures, shared macro cache, refresh |
+| Pipeline | Full run with fakes, free re-run, cost limit, partial failures, shared macro cache, refresh, news freshness |
 | API | Every filter and every error response, against a seeded in-memory database |
 | Chat | Tool loop with a scripted fake LLM: grounding, citations, tool errors, round limit, follow-ups |
 
@@ -95,3 +95,7 @@ Live on gpt-5.4-mini:
 **T5-3 Written answers.** Drafted in [SUBMISSION.md](SUBMISSION.md). Questions 2 to 4 need the author's own words.
 
 **T5-4 Demo video.** The author's. A suggested script is in [START_HERE.md](START_HERE.md).
+
+### Epic 6: Follow-up
+
+**T6-1 News freshness (D19).** `services/news/freshness.py` has two pure functions, `is_settled` and `is_recent`. `fetch_news` re-runs cached searches that are not settled, merges new articles with the ones already found, and reports which movements gained articles. The pipeline selects the N largest moves plus moves from the last 7 days, and explains a move only when it is new, refreshed or just gained articles. The clock is passed into `run_ingest` so tests control it. Job detail now reports `candidates`, `to_explain` and `searches_refreshed`. 10 new tests. Live: TSLA over 30 days with the limit at 2 explained the two largest moves plus yesterday's +2.27% move. A second run re-ran only that move's 3 searches ($0.02) and paid for no explanation. AAPL and MSFT re-ran from cache at no cost.

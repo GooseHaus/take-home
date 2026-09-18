@@ -132,7 +132,7 @@ Why: after the industry and macro tiers were added, AAPL's explanations had been
 
 Tradeoff: there is no way to force a search to run again. That is fine for past dates and wrong for a window that includes today.
 
-Revisit: expire cache rows that were fetched soon after their window closed.
+Resolved for recent windows by D19.
 
 ## D16. Every tier runs for every selected move
 
@@ -165,3 +165,17 @@ Why: tool results are most of the tokens, and the answers already contain the da
 Tradeoff: a follow-up that needs earlier detail costs one more tool call. Messages are stored in chat-completions format, which ties storage to that format.
 
 Citations are the articles whose URLs appear in the answer and were returned by a tool in that turn. `tool_calls` is returned as well so a reader can see which lookups were used.
+
+## D19. Recent news is re-fetched until it settles, and recent moves are always explained
+
+A cached search is final only if it ran at least 2 days after its news window closed. Until then a re-ingest runs it again and adds any new articles to the ones already found. Candidates for news are the N largest moves plus any move from the last 7 days. A move is explained when it has no explanation, when `refresh` is set, or when a search just brought in new articles.
+
+Why: searches were cached permanently (D11, D15), so a move ingested the morning after it happened kept only that morning's coverage. The top-N cost limit also meant a small move from yesterday was detected but never explained. Both matter for anyone running ingest day to day.
+
+All candidates go through the news step, including ones handled before. That is cheap, because a settled cached search is a database lookup. It also means a tier added later is picked up without `refresh`.
+
+Tradeoff: a move's searches run again on each ingest during the 2 to 3 days after it, about $0.02 per move per run. If a re-run fails, the articles already found are kept. The constants (2 and 7 days) are hand-picked. Freshness still depends on someone running ingest.
+
+Live check: TSLA over 30 days with the limit at 2 explained the two largest moves and also yesterday's +2.27% move, the smallest of the ten. A second run re-ran only that move's 3 searches, found nothing new and paid for no explanation. AAPL and MSFT, with no recent moves, re-ran from cache at no cost.
+
+Revisit: a scheduled re-ingest, and settle times per tier.

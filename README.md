@@ -43,8 +43,9 @@ curl -s localhost:8000/tickers/AAPL/status
 
 ```json
 { "status": "done", "stage": "complete",
-  "detail": { "movements": 40, "selected": 25, "explained": 25,
-              "news": { "searches_run": 75, "searches_cached": 0, "cost_dollars": 0.525 }, "errors": [] } }
+  "detail": { "movements": 40, "candidates": 25, "to_explain": 25, "explained": 25,
+              "news": { "searches_run": 75, "searches_cached": 0, "searches_refreshed": 0, "cost_dollars": 0.525 },
+              "errors": [] } }
 ```
 
 The request body is optional:
@@ -58,10 +59,12 @@ curl -s -X POST localhost:8000/tickers/MSFT/ingest -H 'content-type: application
 |---|---|---|
 | `start`, `end` | last 365 days | Period to analyse. `lookback_days` can be used instead of `start` |
 | `threshold_pct` | `2.0` | Minimum absolute close-to-close change, in percent, to count as a major move |
-| `max_movements` | `25` | Cost limit. Only the N largest moves get news searches and an explanation |
+| `max_movements` | `25` | Cost limit. The N largest moves get news searches and an explanation, plus any move from the last 7 days |
 | `refresh` | `false` | Re-explain moves that already have an explanation |
 
-Ingest can be repeated safely. It skips searches and explanations it has already done, so a re-run takes under a second and costs nothing. Macro news searches don't depend on the ticker, so a second ticker reuses the ones the first ticker ran.
+Ingest can be repeated safely. It skips searches and explanations it has already done, so a re-run of past dates takes about a second and costs nothing. Macro news searches don't depend on the ticker, so a second ticker reuses the ones the first ticker ran.
+
+Recent moves are handled differently, because news keeps arriving after a move. A search counts as final only if it ran at least two days after its news window closed. Until then, each re-ingest runs that move's searches again, and the move is re-explained only if new articles turned up. Moves from the last 7 days are always explained, even if they are not among the N largest.
 
 ### 2. Get all stock and news data for a ticker
 
@@ -171,7 +174,7 @@ app/
   prompts/        LLM prompts as .md files
   dependencies.py provider wiring
   config.py       settings from the environment
-tests/            121 offline tests, with fakes for each provider
+tests/            131 offline tests, with fakes for each provider
 development_docs/ roadmap, tickets, conventions and decision log
 ```
 
@@ -196,8 +199,8 @@ Without keys the app still starts and serves data that was already ingested. Ing
 - An explanation is the most likely cause according to the news found. It is not proof, and it is not investment advice.
 - Only single-day moves are detected. A slow 10% slide over two weeks is missed.
 - Exa's published-date filter drops pages with a missing or wrong date. The search window is extended by one day to pick up next-day coverage.
-- Cached searches never expire. That is fine for past dates, but a move ingested on the day it happens won't pick up articles published later.
-- Only the N largest moves in the requested range are explained, so a small recent move can be detected but left unexplained.
+- News for a recent move is only updated when ingest is run again. Nothing re-ingests on a schedule.
+- Outside the last 7 days, only the N largest moves in the requested range are explained.
 - Background jobs run inside the API process. A restart during an ingest loses the job. Posting the ingest again resumes it without repeating finished work.
 - SQLite with no migrations. A schema change means deleting `data/app.db`.
 - No authentication or rate limiting. `search_articles` is a substring match, not full-text search.

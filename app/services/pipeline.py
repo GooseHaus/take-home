@@ -1,12 +1,13 @@
 """The ingest pipeline (D1, D7): prices -> movements -> news -> explanations, with job progress.
 
-Idempotent per movement: anything already explained is skipped, and cached searches are never re-run, so re-posting an
-ingest after a crash (or to extend the date range) only pays for what is new.
+Repeatable: settled cached searches are never re-run and a move is only re-explained when something changed, so
+re-posting an ingest after a crash, or to extend the date range, only pays for what is new. Recent moves are the
+exception: their searches re-run until the news has settled (D19).
 """
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -14,6 +15,7 @@ from app.constants.pipeline import LLM_MAX_WORKERS, MAX_ERRORS_RECORDED
 from app.enums import IngestStage
 from app.errors import AppError, ProviderError
 from app.models import Company, IngestJob, Movement
+from app.models.base import utcnow
 from app.providers.llm import LLMClient
 from app.providers.market_data import MarketDataProvider
 from app.providers.news import NewsProvider
@@ -24,6 +26,7 @@ from app.repositories.prices import load_price_frame
 from app.schemas.llm import ExplanationOutput
 from app.services.explain import build_user_prompt, prompt_articles, request_explanation
 from app.services.movements import detect_movements
+from app.services.news.freshness import is_recent
 from app.services.news.search import fetch_news
 from app.services.peers import ensure_peers
 from app.services.price_ingest import benchmark_tickers, ingest_prices
@@ -31,14 +34,21 @@ from app.services.price_ingest import benchmark_tickers, ingest_prices
 logger = logging.getLogger(__name__)
 
 
-def select_for_explanation(movements: list[Movement], limit: int, refresh: bool = False) -> list[Movement]:
-    """Cost guard: only the `limit` largest moves (by absolute size) get paid news searches and LLM calls.
+def select_candidates(movements: list[Movement], limit: int, today: date) -> list[Movement]:
+    """Cost guard: the `limit` largest moves by absolute size, plus any move from the last few days (D19).
 
-    Already-explained moves are skipped unless `refresh`; even then cached searches aren't repeated, so a refresh
-    costs the LLM calls plus whatever searches are new (e.g. a tier added since the last ingest).
+    Candidates all go through the news step. That is cheap for moves handled before, because a settled cached
+    search is a database lookup.
     """
     largest = sorted(movements, key=lambda m: abs(m.pct_change), reverse=True)[:limit]
-    return [m for m in largest if refresh or m.explanation is None]
+    chosen = {m.id for m in largest}
+    recent = [m for m in movements if m.id not in chosen and is_recent(m.date, today)]
+    return [*largest, *recent]
+
+
+def needs_explanation(movement: Movement, updated_ids: set[int], refresh: bool) -> bool:
+    """Explain a move the first time, when asked to refresh, or when a search just brought in new articles."""
+    return refresh or movement.explanation is None or movement.id in updated_ids
 
 
 def detect_and_store(
@@ -88,8 +98,10 @@ def run_ingest(
     news: NewsProvider,
     llm: LLMClient,
     refresh: bool = False,
+    now: datetime | None = None,
 ) -> None:
     """Entry point for the background task. Owns its session; never raises (failures land on the job row)."""
+    now = now or utcnow()
     with session_factory() as session:
         job = session.get(IngestJob, job_id)
         try:
@@ -98,15 +110,19 @@ def run_ingest(
 
             set_stage(session, job, IngestStage.MOVEMENTS)
             movements = detect_and_store(session, company, start, end, threshold_pct)
-            selected = select_for_explanation(movements, max_movements_with_news, refresh)
+            candidates = select_candidates(movements, max_movements_with_news, now.date())
 
-            set_stage(session, job, IngestStage.NEWS, movements=len(movements), selected=len(selected))
-            if selected:
+            set_stage(session, job, IngestStage.NEWS, movements=len(movements), candidates=len(candidates))
+            if candidates:
                 ensure_peers(session, llm, company)
-            news_stats = fetch_news(session, news, selected, company)
+            news_stats = fetch_news(session, news, candidates, company, now)
+            updated_ids = set(news_stats.pop("updated_movement_ids"))
+            to_explain = [m for m in candidates if needs_explanation(m, updated_ids, refresh)]
 
-            set_stage(session, job, IngestStage.EXPLANATIONS, news=_without_errors(news_stats))
-            explain_stats = explain_movements(session, llm, selected, company)
+            set_stage(
+                session, job, IngestStage.EXPLANATIONS, news=_without_errors(news_stats), to_explain=len(to_explain)
+            )
+            explain_stats = explain_movements(session, llm, to_explain, company)
 
             errors = (news_stats["errors"] + explain_stats["errors"])[:MAX_ERRORS_RECORDED]
             finish_job(session, job, explained=explain_stats["explained"], errors=errors)
