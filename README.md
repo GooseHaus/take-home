@@ -36,7 +36,9 @@ Open `.env`, fill in `EXA_API_KEY` and `OPENAI_API_KEY`, then start the server:
 uvicorn app.main:app
 ```
 
-API docs are at <http://localhost:8000/docs>. `GET /health` shows whether both keys loaded.
+The server runs in the foreground, so leave this terminal open. Use a second terminal for the commands below.
+
+API docs are at <http://localhost:8000/docs>.
 
 The OpenAPI (Swagger) spec is also committed as YAML, so it can be read without running the app:
 
@@ -57,18 +59,30 @@ ruff format --check .
 
 ## Walkthrough
 
-Run these in a second terminal while the server is running. They work as written in bash and in the Windows Command Prompt. In PowerShell, `curl` is an alias for a different command, so type `curl.exe`, or use the Swagger page at <http://localhost:8000/docs>, where every endpoint can be tried from the browser.
+Run these in a second terminal while the server is running. First check that it is up and that both keys loaded:
+
+```bash
+curl localhost:8000/health
+```
+
+```json
+{"status":"ok","exa_configured":true,"openai_configured":true}
+```
+
+If curl reports `Failed to connect`, the server is not running. If a key shows `false`, it is missing from `.env`; restart the server after editing the file.
+
+The commands work as written in bash and in the Windows Command Prompt. In PowerShell, `curl` is an alias for a different command, so type `curl.exe`, or use the Swagger page at <http://localhost:8000/docs>, where every endpoint can be tried from the browser.
 
 ### 1. Ingest a ticker
 
 ```bash
-curl -s -X POST localhost:8000/tickers/AAPL/ingest
+curl -X POST localhost:8000/tickers/AAPL/ingest
 ```
 
 This returns `202` and a job. The work runs in the background. A first ticker takes about a minute and costs roughly $0.50 of Exa credit plus a few cents of OpenAI. Poll the job:
 
 ```bash
-curl -s localhost:8000/tickers/AAPL/status
+curl localhost:8000/tickers/AAPL/status
 ```
 
 ```json
@@ -81,7 +95,7 @@ curl -s localhost:8000/tickers/AAPL/status
 The request body is optional:
 
 ```bash
-curl -s -X POST localhost:8000/tickers/MSFT/ingest -H "content-type: application/json" -d "{\"start\": \"2026-01-01\", \"end\": \"2026-06-30\", \"threshold_pct\": 3, \"max_movements\": 10}"
+curl -X POST localhost:8000/tickers/MSFT/ingest -H "content-type: application/json" -d "{\"start\": \"2026-01-01\", \"end\": \"2026-06-30\", \"threshold_pct\": 3, \"max_movements\": 10}"
 ```
 
 | Field | Default | Meaning |
@@ -98,7 +112,7 @@ Recent moves are handled differently, because news keeps arriving after a move. 
 ### 2. Get all stock and news data for a ticker
 
 ```bash
-curl -s "localhost:8000/tickers/AAPL"
+curl "localhost:8000/tickers/AAPL"
 ```
 
 The response has the company profile, daily prices, every major movement, and the explanation and articles for each movement:
@@ -132,21 +146,28 @@ All filters are optional and can be combined:
 | `limit`, `offset` | `limit=10` | Pagination over movements. `total_movements` is the full count |
 | `include_prices`, `include_news` | `include_prices=false` | Leave parts out of the response |
 
+Market-driven drops, showing only the articles the explanation relied on:
+
 ```bash
-# Market-driven drops, showing only the articles the explanation relied on
-curl -s "localhost:8000/tickers/AAPL?direction=down&category=macro&min_relevance=0.5&include_prices=false"
+curl "localhost:8000/tickers/AAPL?direction=down&category=macro&min_relevance=0.5&include_prices=false"
+```
 
-# One movement with every article that was considered
-curl -s localhost:8000/tickers/AAPL/movements/2026-07-31
+One movement with every article that was considered:
 
-# Tickers ingested so far
-curl -s localhost:8000/tickers
+```bash
+curl localhost:8000/tickers/AAPL/movements/2026-07-31
+```
+
+Tickers ingested so far:
+
+```bash
+curl localhost:8000/tickers
 ```
 
 ### 3. Chat with the data
 
 ```bash
-curl -s localhost:8000/chat -H "content-type: application/json" -d "{\"message\": \"Why did AAPL drop at the end of July?\"}"
+curl localhost:8000/chat -H "content-type: application/json" -d "{\"message\": \"Why did AAPL drop at the end of July?\"}"
 ```
 
 ```json
@@ -159,7 +180,7 @@ curl -s localhost:8000/chat -H "content-type: application/json" -d "{\"message\"
 Send the `conversation_id` back to ask a follow-up:
 
 ```bash
-curl -s localhost:8000/chat -H "content-type: application/json" -d "{\"conversation_id\": \"3f2a...\", \"message\": \"Was that just Apple, or was the whole market down that day?\"}"
+curl localhost:8000/chat -H "content-type: application/json" -d "{\"conversation_id\": \"3f2a...\", \"message\": \"Was that just Apple, or was the whole market down that day?\"}"
 ```
 
 Other questions to try:
