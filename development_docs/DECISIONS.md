@@ -225,3 +225,20 @@ Left as is, on purpose:
 - Validation errors use FastAPI's 422 body and application errors use `{"error": {...}}`. Unifying them is a small handler, but it changes every documented error example.
 - `GET /tickers/{ticker}` returns 404 during the first seconds of a first ingest, before the company row exists. The status endpoint shows the running job.
 - There is still no authentication or rate limiting (out of scope, see ROADMAP).
+
+## D22. Findings from a manual test on Windows
+
+The author followed the README from a fresh clone in the Windows Command Prompt. The API worked end to end. The README did not.
+
+- `cp`, `source` and `&&` do not exist in cmd. The quickstart now has a Windows block.
+- The curl examples with a JSON body used single quotes and backslash continuations, which cmd does not accept. They are now single lines with escaped double quotes, which work in both bash and cmd. PowerShell users are pointed to `curl.exe` or the `/docs` page.
+- `curl -s` hid "Failed to connect" when the server was not running, so every command printed nothing. `-s` was removed, the two-terminal step is stated, and the walkthrough starts with a health check.
+- A code block with `#` comment lines fails in cmd. It was split.
+- The follow-up chat example used a placeholder conversation id that was easy to paste by mistake. It now says `PASTE_ID_HERE`.
+- The first GET example returned several hundred kilobytes of unformatted JSON. A smaller, formatted request is shown first.
+
+The earlier fresh-clone dry run missed all of this because it ran in Git Bash.
+
+The test output also showed a misdated article being cited: Apple's July 30 earnings release, indexed by Exa with a July 1 date, was used as evidence for the July 2 move. A rule was added to the explanation prompt to discard articles whose own text shows they are from after the move. It catches some cases (an April 20 announcement dated April 1 was scored 0) but not this one, because the excerpt gives no later date. This is recorded in the README limitations.
+
+Revisit: cross-check a cited article against other movements' articles, or fetch the page's own date for cited articles only.
