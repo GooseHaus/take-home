@@ -1,10 +1,10 @@
-# START HERE — Stock Movement Explainer (2026-09-18: Phases 0–1, conventions, Phases 0–4 done — chat live; next Phase 5 ship)
+# START HERE — Stock Movement Explainer (2026-09-18: Phases 0–1, conventions, all code done; remaining: edit SUBMISSION.md, record the video, submit)
 
 > Living doc. Update the status line and the sections below at the end of every ticket.
 
 ## One-line status
 
-**Phases 0–1 done.** Prices (AAPL + SPY + sector ETF) ingest from yfinance into SQLite; movement detection with z-score, volume ratio, excess returns, driver hint and news window is unit-tested (20 tests) and smoke-tested live (AAPL 1y → 40 movements). Models are one-class-per-file (D10). **T1-3 retrofit done:** code follows [CONVENTIONS.md](CONVENTIONS.md) — constants, enums, Protocol-backed providers, repositories, typed errors, ruff clean, pinned deps (27 tests). **T2-1 done:** Exa news search behind `NewsProvider`, URL-deduped article storage (38 tests). **T2-3 done:** LLM explanations with structured output, prompts as files (45 tests); live: earnings day → `company` 0.98, market sell-off day → `macro` 0.72. **T2-4 done — the core loop is closed:** one call ingests a ticker end-to-end (live AAPL 1y: 28.8 s, $0.16, re-run free). **T2-2 done — Phase 2 complete:** company + industry + macro tiers, LLM-suggested peers, macro searches shared across tickers, `refresh` re-explain (71 tests). **Phase 3 done:** `POST /tickers/{t}/ingest`, `GET /tickers/{t}/status`, `GET /tickers/{t}` with the shared `MovementFilters`, `GET /tickers/{t}/movements/{date}`, `GET /tickers` (107 tests; verified live over HTTP). **Phase 4 done:** `POST /chat` (tool-calling over the shared read layer, grounded citations, tool trace) and `GET /chat/{id}`; follow-ups work via `conversation_id` (120 tests; verified live on gpt-5.4-mini). Branch `initial-development/T4-chat` is ready to push. **Every feature in the brief now exists. Next: Phase 5 — README, fresh-clone dry run, SUBMISSION.md answers, video.**
+**Phases 0–1 done.** Prices (AAPL + SPY + sector ETF) ingest from yfinance into SQLite; movement detection with z-score, volume ratio, excess returns, driver hint and news window is unit-tested (20 tests) and smoke-tested live (AAPL 1y → 40 movements). Models are one-class-per-file (D10). **T1-3 retrofit done:** code follows [CONVENTIONS.md](CONVENTIONS.md) — constants, enums, Protocol-backed providers, repositories, typed errors, ruff clean, pinned deps (27 tests). **T2-1 done:** Exa news search behind `NewsProvider`, URL-deduped article storage (38 tests). **T2-3 done:** LLM explanations with structured output, prompts as files (45 tests); live: earnings day → `company` 0.98, market sell-off day → `macro` 0.72. **T2-4 done — the core loop is closed:** one call ingests a ticker end-to-end (live AAPL 1y: 28.8 s, $0.16, re-run free). **T2-2 done — Phase 2 complete:** company + industry + macro tiers, LLM-suggested peers, macro searches shared across tickers, `refresh` re-explain (71 tests). **Phase 3 done:** `POST /tickers/{t}/ingest`, `GET /tickers/{t}/status`, `GET /tickers/{t}` with the shared `MovementFilters`, `GET /tickers/{t}/movements/{date}`, `GET /tickers` (107 tests; verified live over HTTP). **Phase 4 done:** `POST /chat` (tool-calling over the shared read layer, grounded citations, tool trace) and `GET /chat/{id}`; follow-ups work via `conversation_id` (120 tests; verified live on gpt-5.4-mini). Branch `initial-development/T4-chat` is ready to push. **Phase 5 done bar the human parts:** README, CI workflow, fresh-clone dry run (which caught and fixed a non-hermetic test), SUBMISSION.md drafts — 121 tests. Branch `initial-development/T5-ship` is ready to push. **Remaining: edit SUBMISSION.md into your own words, record the demo video, submit the GitHub link.**
 
 ## The clock
 
@@ -17,7 +17,7 @@
 | 2 News & explanations | 60 min | ✅ |
 | 3 Data API | 35 min | ✅ |
 | 4 Chat | 45 min | ✅ |
-| 5 Ship (protected) | 35 min | ⏳ |
+| 5 Ship (protected) | 35 min | 🟡 code + docs done; video + answers are yours |
 
 ## Done & verified
 
@@ -31,10 +31,11 @@
 - **T2-2 tiers** — 19 tests; live AAPL refresh + MSFT ingest (numbers in PLAN.md T2-2). Local `data/app.db` now holds AAPL and MSFT, 25 explained movements each.
 - **T3-1/T3-2 data API** — 36 tests; every route exercised live with curl against real AAPL/MSFT data, including error paths and a zero-cost re-ingest.
 - **T4-1/T4-2 chat** — 13 tests; four live conversations incl. a follow-up and an un-ingested ticker (transcripts summarised in PLAN.md T4).
+- **T5-1/T5-2** — README walkthrough commands match the live runs; fresh clone: 121 passed, boots without `.env`.
 
 ## Built but UNVERIFIED
 
-- Nothing yet.
+- **CI workflow** (`.github/workflows/ci.yml`) — will first run when this branch's PR opens. The same three commands pass in a fresh clone on Windows; Linux is unverified until then.
 
 ## Open loops (need the human)
 
@@ -44,7 +45,7 @@
 
 ## Immediate next task
 
-**T5-1** — README: what it is, quickstart (venv, `pip install -r requirements.txt`, `.env`, `uvicorn app.main:app`), curl walkthrough (ingest → status → filtered GET → chat + follow-up), architecture sketch, limitations / what's next. Then **T5-2** fresh-clone dry run, **T5-3** SUBMISSION.md drafts from DECISIONS.md, optional CI workflow (ruff + pytest). Video (T5-4) is the user's.
+No code tasks left. **For the human:** (1) push + merge `initial-development/T5-ship` and check the CI run is green; (2) edit [SUBMISSION.md](SUBMISSION.md) — especially Q2–Q4 — and delete its DRAFT note; (3) record the video; (4) submit the repo link. Suggested 3-minute demo: `/docs` overview → `POST /tickers/NVDA/ingest` and poll status (shows stages + cost) → `GET /tickers/AAPL?direction=down&category=macro&min_relevance=0.5&include_prices=false` → chat question + follow-up → ask about an un-ingested ticker → 30 s on the driver-hint idea and DECISIONS.md.
 
 ## How we work (match this)
 

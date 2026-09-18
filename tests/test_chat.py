@@ -207,5 +207,14 @@ def test_unknown_conversation_id_is_rejected(ask):
 
 @pytest.mark.parametrize("body", [{"message": ""}, {}, {"message": "x" * 5000}])
 def test_bad_chat_requests(ask, body):
+    app.dependency_overrides[get_llm_client] = lambda: FakeLLMClient()
     with TestClient(app) as client:
         assert client.post("/chat", json=body).status_code == 422
+
+
+def test_chat_without_an_api_key_is_a_503_naming_the_key(ask):
+    get_llm_client.cache_clear()
+    with TestClient(app) as client:
+        response = client.post("/chat", json={"message": "hello"})
+    assert response.status_code == 503
+    assert response.json()["error"] == {"code": "provider_not_configured", "message": "OPENAI_API_KEY is not set"}
