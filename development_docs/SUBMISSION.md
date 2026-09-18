@@ -1,45 +1,55 @@
 # Submission answers
 
-> **DRAFT — edit before submitting.** Written from [DECISIONS.md](DECISIONS.md) and the build log so the facts are right, but questions 2–4 ask for your view, so put them in your own words. Delete this note before submitting.
+> DRAFT. Edit before submitting, then delete this note. Question 1 is factual. Questions 2 to 4 ask for your own view.
 
-## 1. Process from start to finish — assumptions, decisions, tradeoffs
+## 1. Process from start to finish
 
-**Plan first, with cut lines.** Before writing code I wrote a roadmap of six timeboxed phases, each with an exit criterion and a "what to drop if this overruns" line, plus a ticket plan and a decision log ([development_docs/](.)). I worked with Claude Code as a pair throughout: I set the architecture, conventions and workflow and reviewed each ticket; it did most of the typing. Every ticket ended with offline tests, a lint pass and one live smoke run, recorded in PLAN.md.
+I planned before writing code. The roadmap has six timeboxed phases, each with an exit criterion and a note on what to cut if it overran. There is also a ticket plan and a decision log, all in `development_docs/`. I worked with Claude Code as a pair. I set the architecture, the conventions and the git workflow and reviewed each ticket. It wrote most of the code. Each ticket finished with offline tests, a lint pass and one live run against the real APIs.
 
-**Assumptions:** daily granularity is enough; the news "period" for a move is the previous trading day through the day after (covers after-hours earnings, weekends and next-day write-ups); a reviewer should be able to run it with two API keys and no infrastructure; explanations are plausible attributions, not causal claims.
+Assumptions:
 
-**Key decisions and their tradeoffs**
+- Daily prices are enough.
+- The news period for a move runs from the previous trading day to the day after. That covers after-hours earnings, weekends and next-day coverage.
+- A reviewer should be able to run it with two API keys and nothing else to install.
+- An explanation is a likely cause, not a proven one.
 
-- **Precompute on ingest; API and chat are read-only (D1).** News search + LLM calls for 25 moves take ~a minute and cost money, so they happen once, in a background job, and are stored. Filters become SQL and chat answers are reproducible. *Cost:* data is only as fresh as the last ingest, and a new ticker takes two calls.
-- **"Major move" = |close-to-close| ≥ 2%, as the brief suggests, with a volatility z-score stored alongside (D3).** Simple to explain, and the z-score keeps the insight that 2% means different things for KO and TSLA. Adjusted prices so splits don't register as crashes (D12). *Cost:* single-day only.
-- **Use prices to decide where to look (D4).** Each move is compared with SPY and the sector ETF to produce a `market / sector / idiosyncratic` hint, which orders the searches and is given to the LLM as evidence. This was my answer to the [Hard] tier: the difficulty isn't finding macro news, it's knowing *when* macro is the answer. Live, every market-hinted AAPL move was categorised `macro`. *Cost:* hand-picked thresholds; so it's a hint, never a filter.
-- **Exa for news (D5).** Historical reach decided it — NewsAPI's free tier covers ~30 days. Three tiers as strategy classes; macro searches are ticker-independent, so their cache is shared across tickers. *Cost:* published-date filters are hard, so undated pages are lost.
-- **LLM explains and ranks; "unexplained" is allowed (D6).** Structured output typed by the same enums as the DB and API; citations restricted to supplied article ids. Forcing a cause for every move is the worst failure mode for this product.
-- **Chat = tool-calling over the REST read layer, not embeddings (D8, D18).** Questions here are structured (ticker, dates, direction), so SQL filters beat similarity search. One `MovementFilters` model serves the query string, the chat tool schema and the repository (D17), so they can't drift. Citations are limited to URLs the tools returned.
-- **SQLite, in-process background jobs (D2, D7).** Zero setup for the reviewer. Idempotent ingest is what makes this acceptable: a crashed job is recovered by re-posting, at no cost.
-- **Conventions agreed after Phase 1 (D14):** one class per file, constants and enums, Protocol-backed providers, repositories, typed errors. One 15-minute retrofit ticket while there were three modules to change rather than fifteen.
-- **Build order:** close the loop with company news only, *then* add industry and macro — so a blown timebox would still have left a complete [Easy] system. Adding the two harder tiers was two files and a registry line.
+Main decisions and tradeoffs:
+
+- Ingest does all the paid work once and stores it. The data endpoint and chat only read (D1). News search and LLM calls for 25 moves take about a minute and cost money, so they don't belong in a GET. The cost is that data is only as fresh as the last ingest.
+- A major move is an absolute close-to-close change of 2% or more, as the brief suggests (D3). I also store a z-score against recent volatility, because 2% means something different for KO than for TSLA. Prices are split-adjusted so a split isn't detected as a crash (D12). Only single-day moves are covered.
+- Prices decide where to look for news (D4). Each move is compared with SPY and the sector ETF, which gives a hint of `market`, `sector` or `idiosyncratic`. The hint orders the searches and goes into the LLM prompt. This was my approach to the hard tier: finding macro news is easy, knowing when macro is the answer is not. In testing, every AAPL move with a market hint was categorised `macro`. The thresholds are hand-picked, so it is only a hint and never filters anything out.
+- Exa for news (D5), because it can search back a full year. NewsAPI's free tier only goes back about 30 days. The three tiers are small strategy classes. Macro searches don't depend on the ticker, so their cache is shared between tickers. Exa's date filter drops undated pages, which costs some coverage.
+- The LLM can answer `unexplained` and can only cite the articles it was given (D6). Inventing a cause for every move would be the worst way for this to fail.
+- Chat uses tool calling over the same queries as the REST API, not embeddings (D8, D18). Questions about this data are structured (ticker, dates, direction), so SQL filters are a better fit than similarity search. One `MovementFilters` model is the query string, the chat tool schema and the repository input (D17).
+- SQLite and in-process background jobs (D2, D7), so there is nothing to set up. This is acceptable because ingest can be repeated safely: if a job dies, posting it again resumes it at no extra cost.
+- I agreed the code conventions after Phase 1 (D14) and spent one 15-minute ticket bringing the existing code in line.
+- Build order: I got the whole pipeline working with company news only, then added the industry and macro tiers. If I had run out of time I would still have had a complete system for the easy tier.
 
 ## 2. Are you happy with your solution?
 
-Mostly yes. It does what the brief asks end to end, the hard tier is handled by an idea I'd defend (price-relative hints) rather than by more searching, and it fails honestly — unexplained moves, un-ingested tickers and provider outages all surface as what they are. It's cheap (~$0.50 and a minute for a first ticker; a re-run is free) and the 121 tests run offline.
+Mostly. It covers everything in the brief, and I think the price-based hint is a good answer to the macro tier. It fails honestly: unexplained moves, tickers that aren't ingested and provider errors are all reported as what they are. It is cheap to run (about $0.50 and a minute for a first ticker, nothing for a re-run) and the 121 tests run offline.
 
-What I'm less happy with: accuracy is *eyeballed*, not measured — I checked known days (an earnings miss, market-wide sell-offs) but have no evaluation set, so I can't say how often the category is right. Ingest is slower than it should be because I capped Exa concurrency at 4 without knowing the rate limit. And it's more files than a project this size strictly needs — a deliberate choice for extensibility that a reviewer could fairly call heavy.
+What I'm less happy with:
+
+- I checked accuracy by looking at known days (an earnings miss, market-wide selloffs). I did not measure it, so I can't say how often the category is right.
+- News for recent moves can go stale. Searches are cached permanently, and only the 25 largest moves in the range are explained, so a small move from yesterday may not be explained at all.
+- Ingest is slower than it needs to be. I limited Exa to 4 parallel searches because I didn't know the rate limit.
+- There are a lot of files for a project this size. That was a deliberate choice for extensibility, but a reviewer could fairly call it heavy.
 
 ## 3. What would you do differently?
 
-- **Build a small eval set first** — 20–30 known events (earnings dates, FOMC days, sector shocks) with expected categories — and tune prompts and thresholds against it instead of by inspection.
-- **Agree conventions before the first line of code**, not after Phase 1; the retrofit was cheap but avoidable.
-- **Gate the macro search on the market actually moving** rather than running all three tiers for every move (D16) — roughly a third fewer searches for the same answers.
-- With more time: multi-day drawdowns, a durable job queue + Postgres, incremental re-ingest, cache expiry for windows that include today, FTS for article search, streaming chat.
+- Build a small evaluation set first: 20 to 30 known events with the expected category, and tune the prompts and thresholds against it.
+- Agree the conventions before writing any code, not after Phase 1.
+- Only run the macro search when the market actually moved that day. That would cut about a third of the searches.
+- Expire cached searches for recent windows, and always explain the last few days of moves regardless of size.
 
 ## 4. Did you get stuck anywhere?
 
-Nothing blocked for long, but four things cost time:
+Nothing blocked me for long. Four things cost time:
 
-- **FastAPI silently stopped reading my filter model from the query string** — every request returned 422 "field required". Cause: a Pydantic model is only treated as query parameters when it's the endpoint's *sole* query parameter, and I'd added two loose flags beside it. Found it by hitting the endpoint directly and reading the error's `loc`; fixed with a small subclass that carries the flags (D17).
-- **A field named `date` shadowing the `date` type** broke annotations, first in a SQLAlchemy model and later in a Pydantic schema. Fixed with `import datetime as dt`; the second time I recognised it immediately.
-- **In-memory SQLite gives each connection its own empty database**, so tests saw missing tables until the engine used a single shared connection (`StaticPool`).
-- **Three tests that only passed on my machine.** A fresh-clone dry run (new venv, no `.env`) failed where my local run was green: those tests never injected a fake LLM, so they were silently leaning on my real API key. The test config now blanks the keys, so local runs behave like CI. Cheap lesson in why the dry run is on the checklist.
+- FastAPI stopped reading my filter model from the query string, and every request returned 422. A Pydantic model is only read as query parameters when it is the endpoint's only query parameter, and I had added two separate flags next to it. I found it by calling the endpoint directly and reading the error location. The fix was a small subclass that includes the flags (D17).
+- A field named `date` shadowed the `date` type and broke the annotations after it, first in a SQLAlchemy model and later in a Pydantic schema. The fix was `import datetime as dt`.
+- In-memory SQLite gives each connection its own empty database, so tests couldn't see the tables until the engine used a single shared connection.
+- Three tests passed only on my machine. A dry run from a fresh clone, with a new venv and no `.env`, showed they were using my real API key because they never injected a fake LLM. The test setup now blanks the keys, so local runs behave like CI.
 
-One design correction rather than a bug: after adding the industry and macro tiers, already-explained moves were skipped by the idempotency logic, so they never saw the new evidence. That led to the `refresh` flag — re-explain, but still never repeat a cached search (D15).
+One design change came from testing. After I added the industry and macro tiers, moves that were already explained were skipped, so they never saw the new articles. I added a `refresh` flag that re-explains a move without repeating any cached search (D15).

@@ -1,4 +1,4 @@
-"""Turn an ingest request into a job row + resolved parameters. Running the job is the pipeline's business."""
+"""Turn an ingest request into a job row + resolved parameters. The pipeline runs the job."""
 
 from datetime import date, timedelta
 

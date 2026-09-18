@@ -15,7 +15,7 @@ dist/
 .env.*
 !.env.example
 
-# Local data — SQLite DB + HTTP/news caches are rebuilt on demand
+# Local data - SQLite DB + HTTP/news caches are rebuilt on demand
 data/
 *.db
 *.sqlite

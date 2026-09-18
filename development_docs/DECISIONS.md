@@ -1,245 +1,167 @@
-# Decisions & tradeoffs
+# Decisions and tradeoffs
 
-Choices made while planning and building that a reviewer (or future me) would reasonably question. Each notes why and when to revisit. New decisions get the next `D` number; deviations from [PLAN.md](PLAN.md) are recorded here, not silently absorbed. This file is the source material for [SUBMISSION.md](SUBMISSION.md).
+Design choices a reviewer might question, with the reason for each and when to revisit it. Changes from [PLAN.md](PLAN.md) are recorded here too. All of these are implemented.
 
----
+## D1. Ingest does the paid work; the API and chat only read
 
-## D1 — Precompute on ingest; API and chat are read-only views
+An explicit ingest step makes every yfinance, Exa and OpenAI call and stores the results. `GET /tickers/{ticker}` and `/chat` read the database.
 
-**Status:** 📋 Planned.
+Why: news search and explanations for about 25 moves take around a minute and cost money. Inside a GET that would be slow, non-repeatable and billed on every call. Stored results also make filters plain SQL.
 
-**Decision:** An explicit ingest step does all the slow, paid work (yfinance, Exa, OpenAI) and stores results. `GET /tickers/{ticker}` and `/chat` only read the database.
+Tradeoff: data is as fresh as the last ingest, and a new ticker needs two calls.
 
-**Why:** News search + LLM explanation for ~25 movements takes tens of seconds and costs money; doing it inside a GET makes the endpoint slow, non-deterministic and expensive to call twice. Stored results also make filters trivial (SQL) and chat answers reproducible.
+Revisit: scheduled or incremental re-ingest.
 
-**Tradeoff:** Data is as fresh as the last ingest, and a first-time ticker needs two calls (ingest, then read).
+## D2. SQLite with SQLAlchemy, tables created on startup, no migrations
 
-**Revisit:** Scheduled re-ingest / incremental "since last date" updates for a real deployment.
+Why: nothing for the reviewer to install. The data is relational and filtered heavily, so a database fits better than files. SQLAlchemy keeps a move to Postgres small.
 
----
+Tradeoff: a schema change means deleting `data/app.db`. One writer at a time.
 
-## D2 — SQLite + SQLAlchemy, `create_all`, no migrations
+Revisit: Alembic and Postgres once there is data worth keeping.
 
-**Status:** 📋 Planned.
+## D3. A major move is an absolute close-to-close change of 2% or more
 
-**Decision:** Single-file SQLite via SQLAlchemy 2; tables created on startup.
+The threshold is configurable. Each move also stores a z-score against trailing 60-day volatility. The z-score is shown in the API and given to the LLM but is not part of the cutoff.
 
-**Why:** Zero setup for the reviewer (no Docker, no DB server). SQLAlchemy keeps the swap to Postgres to a connection string. The data is relational (movement → articles → explanation) and filter-heavy, so a real DB beats JSON files even at this size.
+Why: 2% is the brief's own example and is easy to explain. It is noisy for volatile stocks and strict for quiet ones, and the z-score covers that without making the definition harder to understand. Close-to-close is used so overnight gaps from after-hours earnings count.
 
-**Tradeoff:** No schema migrations — a model change means deleting `data/app.db`. Single-writer; fine for one in-process ingest worker.
+Tradeoff: single-day moves only.
 
-**Revisit:** Alembic + Postgres the moment there's a second deployment or data worth keeping.
+Revisit: multi-day drawdowns and runs.
 
----
+## D4. Compare each move with the market and the sector before searching
 
-## D3 — "Major movement" = |close-to-close| ≥ 2%, with a volatility z-score alongside
+SPY and the ticker's sector SPDR ETF are fetched with the stock. Each move gets a `driver_hint`: `market` if SPY moved similarly, `sector` if the ETF did and SPY didn't, otherwise `idiosyncratic`.
 
-**Status:** 📋 Planned.
+Why: the hard part of the macro tier is knowing when macro is the answer. Prices answer that cheaply. If the whole market fell 3%, company headlines that day are probably not the cause. The hint sets the search order and is given to the LLM as evidence.
 
-**Decision:** The gate is the prompt's own definition — absolute daily close-to-close change ≥ a configurable threshold (default 2%). Each movement also stores a z-score against trailing 60-day volatility, exposed as data and as context to the LLM, but not used as the gate.
+Tradeoff: a stock can fall on its own news on a bad market day. The hint never filters anything out; every tier still runs.
 
-**Why:** A flat 2% is easy to explain and matches the brief, but it's noisy for high-beta names and too strict for low-vol ones. Storing the z-score gets the insight without making the definition opaque. Close-to-close (not open-to-close) so overnight gaps from after-hours earnings count — that's where most company news lands.
+Revisit: use a regression beta.
 
-**Tradeoff:** Single-day only; a slow 10% slide over two weeks is invisible.
+## D5. Exa for news, behind a provider interface
 
-**Revisit:** Multi-day drawdown/run detection (stretch).
+Why: it can search a full year back. NewsAPI's free tier covers about 30 days, and yfinance news has no date filter. Exa also accepts natural-language queries, which helps the industry and macro tiers. Cost is small: $7 per 1,000 searches with $20 of free credit.
 
----
+Usage, following Exa's `build-with-exa` guidance: `/search` with `type="auto"`, `category="news"`, ISO published-date bounds and `contents={"highlights": True}`. Only one content mode is requested because each one is billed. The deprecated parameters (`use_autoprompt`, `num_sentences`, `highlights_per_url`, `livecrawl`) are not used. The cost reported by each response is stored. Exa's Monitors API is the right tool for ongoing monitoring, not for this historical backfill.
 
-## D4 — Use benchmark-relative returns to hint at the driver before searching
+Tradeoff: the published-date filter drops undated and misdated pages. The window is extended by one day to catch next-day coverage. Competitor names come from one cached LLM call per ticker and could be wrong for obscure companies; the industry name is the fallback.
 
-**Status:** 📋 Planned.
+Revisit: a second provider, and a curated source for competitors.
 
-**Decision:** Fetch SPY and the ticker's sector SPDR ETF alongside the stock. For each movement compute excess return vs each and label a `driver_hint`: `market` (SPY moved similarly), `sector` (ETF moved, SPY didn't), or `idiosyncratic`.
+## D6. The LLM explains and ranks, and may answer "unexplained"
 
-**Why:** "Find macro news that explains this" is the hard tier mostly because it's unclear *when* macro is the answer. Price data answers that cheaply: if the whole market fell 3%, company headlines are likely noise. The hint orders the news tiers and is handed to the LLM as evidence, which should cut confident-but-wrong company attributions on macro days.
+One structured-output call per move receives the price stats, the benchmark context and the candidate articles. It returns a summary, a category, a confidence and a relevance score per article. Citations must be ids from the candidate list.
 
-**Tradeoff:** It's a heuristic — a stock can fall on its own news on a down-market day. So it's a hint, never a filter; all tiers still run for top movements.
+Why: search returns candidates, and deciding which one explains the move is a judgement. Forcing a cause for every move would produce false explanations. Structured output makes category and confidence filterable. Restricting citations to supplied ids prevents invented URLs.
 
-**Revisit:** Regression beta instead of raw excess return.
+Tradeoff: the result is a likely cause, not a proven one. One call per move costs a few more tokens than batching but is simpler and runs in parallel.
 
----
+Revisit: an evaluation set of known events to measure category accuracy.
 
-## D5 — Exa as the news source, behind a provider interface
+## D7. Ingest runs as an in-process background task with a job row
 
-**Status:** 📋 Planned.
+`POST /ingest` returns 202. Progress is stored in `ingest_jobs` and read through the status endpoint.
 
-**Decision:** Exa search (news category, published-date bounds, highlights) behind a small `NewsProvider` protocol. Macro-tier results are cached by date and shared across tickers. Peers for the industry tier come from one cached LLM call per ticker.
+Why: ingest is too long for one request. Celery or RQ would be the production choice but adds infrastructure for the reviewer. Repeatable ingest makes the simple option acceptable: after a crash, posting again resumes without repeating paid calls.
 
-**Why:** Historical coverage is the deciding factor — NewsAPI's free tier only reaches back ~30 days, which makes a 1-year lookback impossible; yfinance news has no date filtering. Exa takes natural-language queries, which suits the industry and macro tiers where keyword search is weakest. Cost is negligible here ($7/1k searches; $20 signup credit; a 1-year ingest ≈ 75 searches). The protocol keeps tests offline and a second provider a small addition.
+Tradeoff: jobs are lost if the process restarts, and there is one worker.
 
-**API usage (per Exa's `build-with-exa` skill, checked 2026-09-18):** `/search` with `type="auto"`, `category="news"`, `start_published_date`/`end_published_date` (ISO 8601), and `contents={"highlights": True}` — bare highlights, one extraction mode only (stacking `text`/`summary` multiplies billing; synthesis happens in our own LLM pass, D6). Python SDK kwargs are snake_case. Avoid the deprecated `use_autoprompt`, `num_sentences`, `highlights_per_url`, `livecrawl`. Log `costDollars` from each response into the job row. Exa's Monitors API (scheduled searches + webhooks) is the fit for *ongoing* monitoring, not this historical backfill.
+Revisit: a durable queue.
 
-**Tradeoff:** Published-date bounds are **hard filters that drop undated or misdated pages**, so some relevant coverage is lost; the window is widened by a day on the trailing side to compensate for next-day write-ups. Semantic search can still return tangential pages; mitigated by the LLM relevance pass (D6). LLM-suggested peers could be wrong for obscure tickers — falls back to the industry string.
+## D8. Chat uses tool calling over the query layer, not embeddings
 
-**Revisit:** Add a second provider and merge results; a curated peers source.
+The chat model gets read-only tools that call the same functions as the REST endpoints.
 
----
+Why: questions about this data are mostly structured: a ticker, a date range, a direction. SQL answers those exactly and similarity search answers them approximately. The data per ticker is small, and sharing the query layer keeps chat consistent with the API.
 
-## D6 — LLM explains and ranks; "unexplained" is a first-class answer
+Tradeoff: free-text search over articles is a substring match.
 
-**Status:** 📋 Planned.
+Revisit: SQLite FTS5, then embeddings if that isn't enough.
 
-**Decision:** One structured-output call per movement receives the move's stats, benchmark context (D4) and candidate articles, and returns summary, category, confidence and per-article relevance. The model may answer `unexplained`. Citations are article ids from the candidates only.
+## D9. OpenAI as the LLM provider
 
-**Why:** Retrieval gives *candidates*; attribution is a judgement call. Forcing a cause for every move manufactures false explanations — the worst failure mode for this product. Structured output makes category/confidence filterable in the API. Restricting citations to supplied ids prevents invented URLs.
+Why: I already had a key, and a second provider's setup would not have shown the reviewer anything new. The model id comes from `OPENAI_MODEL`, and the LLM is used in two places behind one interface.
 
-**Tradeoff:** Attribution is plausible, not causal, and the README says so. One call per movement rather than batching — simpler and parallelisable, slightly more tokens.
+## D10. One class per file
 
-**Revisit:** Eval set of known events (earnings dates, FOMC days) to measure category accuracy.
+Models, dataclasses, schemas, exceptions, providers and tools each get their own module. Packages re-export from `__init__.py` so imports stay short. Functions can share a module.
 
----
+Why: the file name says what is inside, and diffs stay small.
 
-## D7 — Ingest runs as an in-process background task with a job row
+Tradeoff: more files and some import boilerplate.
 
-**Status:** 📋 Planned.
+## D11. One search cache for all tiers
 
-**Decision:** `POST /ingest` returns 202 and runs the pipeline via FastAPI `BackgroundTasks`; progress lives in `ingest_jobs` and is polled through a status endpoint. The pipeline is idempotent per movement.
+PLAN.md had a macro-only cache keyed by date. It became `news_search_cache`, with one row per executed search of any tier.
 
-**Why:** Ingest takes longer than a comfortable HTTP request. A real queue (Celery/RQ + Redis) is the production answer but adds infrastructure the reviewer must run. Idempotency is what makes the cheap option acceptable: a crash mid-ingest is recovered by re-posting, without repeating paid calls.
+Why: one mechanism gives both shared macro searches (their key has no ticker) and free re-ingest for the other tiers. It also stores the cost of each search.
 
-**Tradeoff:** Jobs die with the process and don't scale past one worker.
+## D12. Adjusted prices, fetched with extra history
 
-**Revisit:** Durable queue when there's more than one process.
+Prices use `auto_adjust=True` and start 100 days before the requested window. Re-ingest overwrites existing rows.
 
----
+Why: unadjusted prices turn a 4:1 split into a -75% move. The extra history means the z-score is available from the first requested day. Rows are overwritten because adjusted history changes after each dividend.
 
-## D8 — Chat uses tool-calling over the query layer, not embeddings/RAG
+Tradeoff: stored closes are adjusted values, not the prices quoted on the day. Percentage moves are correct.
 
-**Status:** ✅ Implemented (T4-1). See D18 for how conversations are replayed.
+## D13. Driver hint thresholds
 
-**Decision:** The chat model gets read-only tools that wrap the same `queries.py` functions as the REST endpoints. No vector store.
+A benchmark explains a move when it moved the same way by at least 1%, or by 40% of the stock's move if that is larger. The market is checked before the sector.
 
-**Why:** Questions about this data are overwhelmingly structured — a ticker, a date range, a direction ("biggest drops in Q2", "what happened on Aug 5"). SQL filters answer those exactly; vector similarity answers them approximately. The corpus per ticker is small, and explanations are already distilled summaries. Sharing the query layer means chat can't drift from what the API returns.
+Why: requiring a 1:1 match would miss high-beta stocks that amplify the market. The 1% floor stops a flat index from explaining anything. On a year of AAPL this gives 23 idiosyncratic, 11 sector and 6 market moves.
 
-**Tradeoff:** Free-text search across article content is only a `LIKE` match. Weak for "which moves were about antitrust?" across many tickers.
+Tradeoff: the constants are hand-picked. They only affect search order and the prompt.
 
-**Revisit:** SQLite FTS5 first; embeddings only if that proves insufficient.
+Revisit: a per-ticker beta.
 
----
+## D14. Conventions agreed after Phase 1
 
-## D9 — OpenAI as the LLM provider
+One ticket (T1-3) wrote [CONVENTIONS.md](CONVENTIONS.md) and brought the existing code in line: constants modules, enums, provider Protocols wired in one place, repositories, typed errors with one HTTP handler, ruff, pinned dependencies.
 
-**Status:** 📋 Planned.
+Why: it was the cheapest time to do it, with three modules to change. The rules target real duplication, such as one enum used by the database, the API and the LLM schema.
 
-**Decision:** OpenAI SDK for explanations and chat; model id from `OPENAI_MODEL`.
+Tradeoff: about 15 minutes of a 4-hour budget, and more files than the project strictly needs.
 
-**Why:** Pragmatic — an OpenAI key already existed; setting up a second provider's billing inside a 4-hour window buys nothing the reviewer can see. Both uses (structured output, tool-calling) are standard features, and the LLM is touched in only two modules.
+## D15. `refresh` re-explains without repeating searches
 
-**Revisit:** A thin client interface if provider choice ever matters.
+Ingest skips moves that already have an explanation. `refresh=true` selects them again, but cached searches are still reused.
 
----
+Why: after the industry and macro tiers were added, AAPL's explanations had been written from company news only. A refresh ran 52 new searches and reused the 23 cached ones.
 
-## D10 — One class per file
+Tradeoff: there is no way to force a search to run again. That is fine for past dates and wrong for a window that includes today.
 
-**Status:** ✅ Implemented (T1-1).
+Revisit: expire cache rows that were fetched soon after their window closed.
 
-**Decision:** Every class lives in its own module: `app/models/<table>.py`, `app/domain/<dataclass>.py`, `app/errors/<exception>.py`. Packages re-export from `__init__.py` so call sites stay `from app.models import Price`. Pure functions may share a module.
+## D16. Every tier runs for every selected move
 
-**Why:** A file name tells you exactly what's in it, diffs stay scoped to one concept, and there's no ever-growing `models.py`. Cross-model relationships use string targets + `TYPE_CHECKING` imports, so there are no circular imports.
+The driver hint orders the tiers but does not skip any. Each selected move gets company, industry and macro searches returning 8, 5 and 5 results.
 
-**Tradeoff:** More files and a little import boilerplate for a project this size.
+Why: skipping the company search on a market day would hide a stock that fell on its own news during a selloff. With all three tiers and the benchmark numbers, the categories came out sensibly (AAPL: 17 company, 5 industry, 3 macro).
 
----
+Tradeoff: about three times the searches, which is most of the ingest time (around 60 seconds for 75 searches with 4 workers).
 
-## D11 — Generic news-search cache instead of a macro-only date table
+Revisit: run the macro search only when the market moved at least 1%, and raise the worker count once the Exa rate limit is known.
 
-**Status:** ✅ Implemented in the schema (T1-1); used from T2-2.
+## D17. One `MovementFilters` model
 
-**Decision:** PLAN.md's `macro_news_cache(date)` became `news_search_cache(cache_key → article_ids, cost)` — one row per executed search of any tier.
+A single Pydantic model defines every filter. It is the REST query string, the chat tool arguments and the repository input. Movement fields select movements. `tier` and `min_relevance` only limit the articles shown inside each movement.
 
-**Why:** Same mechanism gives both things we wanted: macro searches shared across tickers (their key has no ticker in it) *and* free idempotent re-ingest for company/industry searches. It also records Exa's per-search cost.
+Why: otherwise the filters would exist in three hand-maintained copies. Keeping the article filters from removing movements means `min_relevance=0.5` reads as "show only the cited articles". Hiding weakly supported moves is what `min_confidence` is for.
 
----
+Note: FastAPI reads a Pydantic model from the query string only when it is the endpoint's only query parameter. Two extra flags next to it made every request fail with 422. `TickerDataQuery` subclasses the filters to carry those flags.
 
-## D12 — Adjusted prices, with a warm-up fetch
+Tradeoff: one response holds prices, movements and articles, so it can be large. `include_prices`, `include_news`, date bounds and pagination reduce it.
 
-**Status:** ✅ Implemented (T1-1).
+Change from the plan: a ticker that hasn't been ingested returns 404, not the 409 in ROADMAP. Nothing conflicts; the resource doesn't exist.
 
-**Decision:** Prices are fetched with `auto_adjust=True`, starting 100 calendar days before the requested window. Existing rows are overwritten on re-ingest.
+## D18. Store the whole conversation, replay only questions and answers
 
-**Why:** Unadjusted closes turn a 4:1 split into a fake −75% "movement". The warm-up means the trailing-volatility z-score is populated from the first requested day rather than ~3 months in. Overwrite (not insert-or-ignore) because adjusted history shifts after every dividend.
+Every message of a chat turn is stored, including tool calls and results. A follow-up replays the last 12 user questions and final answers only.
 
-**Tradeoff:** Stored closes are adjusted values, not the prices printed on the day; percentage moves — what we care about — are correct.
+Why: tool results are most of the tokens, and the answers already contain the dates and tickers a follow-up refers to. It also means trimming history can never separate a tool result from its call, which the API rejects. In testing, "was that just Apple?" led the model to fetch 2026-07-31 again on its own.
 
----
+Tradeoff: a follow-up that needs earlier detail costs one more tool call. Messages are stored in chat-completions format, which ties storage to that format.
 
-## D13 — Driver-hint thresholds
-
-**Status:** ✅ Implemented (T1-2).
-
-**Decision:** A benchmark "explains" a move when it moved the same direction by at least `max(1.0%, 40% of the stock's move)`. Market is checked before sector.
-
-**Why:** 1:1 matching would miss high-beta names that amplify the tape (SPY −2.5%, stock −6% is still a market day); the 1% floor stops a drifting index from "explaining" anything. On AAPL's last year this splits 40 moves into 23 idiosyncratic / 11 sector / 6 market, which passes the smell test.
-
-**Tradeoff:** Hand-picked constants, not fitted. They only order searches and inform the prompt, so a wrong hint degrades gracefully.
-
-**Revisit:** Per-ticker beta from a regression.
-
----
-
-## D14 — Conventions agreed up front; retrofit ticket T1-3
-
-**Status:** ✅ Implemented (T1-3). Rules live in [CONVENTIONS.md](CONVENTIONS.md).
-
-**Decision:** After Phase 1, pause for one ticket to fix the conventions for the rest of the build — constants modules, `StrEnum` vocabularies, Protocol-backed providers wired in one place, repositories for all DB access, typed errors with a single HTTP handler, prompts as files, ruff, pinned dependencies — and bring the existing code in line.
-
-**Why:** Cheapest moment to do it: three modules to retrofit instead of fifteen. The rules target real duplication risks in the remaining phases (one enum feeding DB + API + LLM schema; one filter model feeding REST + chat) and the seams the brief names (news source, news tier, LLM). `services/prices.py` was split along those lines into a yfinance adapter, two repository modules and a `price_ingest` service.
-
-**Tradeoff:** ~15 minutes of a 4-hour budget on structure rather than features, and more files than a project this size strictly needs. Guard rail: "seams, not speculation" — no abstraction without a variation point the brief implies.
-
----
-
-## D15 — `refresh` re-explains; caches still hold
-
-**Status:** ✅ Implemented (T2-2).
-
-**Decision:** Ingest skips movements that already have an explanation. `refresh=true` re-selects them, but cached searches are still never repeated — so a refresh costs the LLM calls plus only the searches that are genuinely new.
-
-**Why:** Needed the moment a tier was added: AAPL's explanations had been written from company news alone. Refresh picked up 52 new industry/macro searches while reusing all 23 company searches. Same mechanism covers a prompt or model change.
-
-**Tradeoff:** No way to force a *search* re-run short of deleting cache rows. Fine for historical windows, whose news doesn't change; wrong for a window that includes today.
-
-**Revisit:** Expire cache rows whose window ended less than N days before they were fetched.
-
----
-
-## D16 — Every tier runs for every selected movement
-
-**Status:** ✅ Implemented (T2-2).
-
-**Decision:** The driver hint (D4) orders tiers and labels shared articles, but does not skip tiers: each of the top-N movements gets company, industry and macro searches (8/5/5 results).
-
-**Why:** The hint is a heuristic; skipping the company search on a "market" day would hide the case where a stock fell on its own news during a sell-off. Letting the LLM see all three tiers, plus the benchmark numbers, produced sensible splits live (AAPL: 17 company / 5 industry / 3 macro). Cost stays small because macro is shared and everything is cached: ~$0.50 for a first ticker, less for later ones.
-
-**Tradeoff:** ~3x the searches of a hint-gated design, and ingest time is dominated by them (~60 s for 75 searches at 4 workers). Measured, accepted.
-
-**Revisit:** Raise `NEWS_MAX_WORKERS` once Exa's rate limit for the account is known; or gate the macro tier on `abs(market move) >= 1%`.
-
----
-
-## D17 — One `MovementFilters` model; article filters narrow articles, not movements
-
-**Status:** ✅ Implemented (T3-2).
-
-**Decision:** A single Pydantic model defines every filter. `GET /tickers/{ticker}` reads it from the query string (via a `TickerDataQuery` subclass that adds `include_prices` / `include_news`), the repository takes it as input, and the chat tools will generate their JSON schema from it. Movement-level fields select movements; `tier` and `min_relevance` only narrow the article list inside each returned movement.
-
-**Why:** Filters were the biggest duplication risk in the project — REST params, chat-tool args and SQL would otherwise be three hand-synced copies. Enum-typed fields give validation, OpenAPI docs and tool schemas for free. Keeping article filters from dropping movements means `min_relevance=0.5` reads as "show me only the cited articles", not "hide moves with weak evidence" — which is what `min_confidence` is for.
-
-**Gotcha recorded:** FastAPI only parses a Pydantic model from the query string when it is the endpoint's *sole* query parameter; adding two loose `Query()` flags beside it silently turned the model into a required field. Hence the subclass.
-
-**Tradeoff:** One response carries prices + movements + articles, so it can be large (AAPL 1y ≈ 320 bars + 40 movements); `include_prices=false`, `include_news=false`, date bounds and pagination are the levers. Pagination applies to movements only, not prices.
-
----
-
-## D18 — Store the whole conversation, replay only questions and answers
-
-**Status:** ✅ Implemented (T4-2).
-
-**Decision:** Every message of a chat turn — user, assistant tool calls, tool results, final answer — is persisted under the `conversation_id`. A follow-up turn replays only the last 12 user questions and final assistant answers; tool calls and results are not replayed.
-
-**Why:** Tool results are the bulk of the tokens (a `list_movements` page with articles is a few thousand), so replaying them makes every follow-up slower and dearer for little gain: the answers already carry the dates and tickers the next question refers to, and the model is told to re-query when it needs detail. It also removes a whole class of bug — truncating history can never separate a tool result from the call that produced it, which the chat API rejects. Verified live: "was that just Apple?" re-fetched 2026-07-31 with `get_movement` unprompted.
-
-**Tradeoff:** A follow-up that needs earlier detail costs one extra tool round. The stored trail is an audit log, not context. Messages are kept in chat-completions dict form, which couples storage to that wire format; acceptable while there is one LLM adapter (D9).
-
-**Also decided here:** `citations` are the articles whose URLs appear in the answer text *and* were returned by a tool in this turn, in order of appearance — grounded by construction rather than by trusting the model's own list. `tool_calls` is returned too, so a reader can see which lookups an answer was built from.
+Citations are the articles whose URLs appear in the answer and were returned by a tool in that turn. `tool_calls` is returned as well so a reader can see which lookups were used.

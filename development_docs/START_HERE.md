@@ -1,61 +1,58 @@
-# START HERE — Stock Movement Explainer (2026-09-18: Phases 0–1, conventions, all code done; remaining: edit SUBMISSION.md, record the video, submit)
+# Start here
 
-> Living doc. Update the status line and the sections below at the end of every ticket.
+Status as of 2026-09-18: all code is done and merged. 121 tests pass, ruff is clean and CI is green.
 
-## One-line status
+## What's left
 
-**Phases 0–1 done.** Prices (AAPL + SPY + sector ETF) ingest from yfinance into SQLite; movement detection with z-score, volume ratio, excess returns, driver hint and news window is unit-tested (20 tests) and smoke-tested live (AAPL 1y → 40 movements). Models are one-class-per-file (D10). **T1-3 retrofit done:** code follows [CONVENTIONS.md](CONVENTIONS.md) — constants, enums, Protocol-backed providers, repositories, typed errors, ruff clean, pinned deps (27 tests). **T2-1 done:** Exa news search behind `NewsProvider`, URL-deduped article storage (38 tests). **T2-3 done:** LLM explanations with structured output, prompts as files (45 tests); live: earnings day → `company` 0.98, market sell-off day → `macro` 0.72. **T2-4 done — the core loop is closed:** one call ingests a ticker end-to-end (live AAPL 1y: 28.8 s, $0.16, re-run free). **T2-2 done — Phase 2 complete:** company + industry + macro tiers, LLM-suggested peers, macro searches shared across tickers, `refresh` re-explain (71 tests). **Phase 3 done:** `POST /tickers/{t}/ingest`, `GET /tickers/{t}/status`, `GET /tickers/{t}` with the shared `MovementFilters`, `GET /tickers/{t}/movements/{date}`, `GET /tickers` (107 tests; verified live over HTTP). **Phase 4 done:** `POST /chat` (tool-calling over the shared read layer, grounded citations, tool trace) and `GET /chat/{id}`; follow-ups work via `conversation_id` (120 tests; verified live on gpt-5.4-mini). Branch `initial-development/T4-chat` is ready to push. **Phase 5 done bar the human parts:** README, CI workflow, fresh-clone dry run (which caught and fixed a non-hermetic test), SUBMISSION.md drafts — 121 tests. Branch `initial-development/T5-ship` is ready to push. **Remaining: edit SUBMISSION.md into your own words, record the demo video, submit the GitHub link.**
+1. Edit [SUBMISSION.md](SUBMISSION.md), especially questions 2 to 4, and delete its draft note.
+2. Record the demo video.
+3. Submit the repository link.
 
-## The clock
+Suggested 3-minute demo:
 
-4-hour limit. Budget by phase (ROADMAP has the cut lines):
+1. Show `/docs`.
+2. `POST /tickers/NVDA/ingest`, then poll `/tickers/NVDA/status` to show the stages and the cost.
+3. `GET /tickers/AAPL?direction=down&category=macro&min_relevance=0.5&include_prices=false`
+4. Ask the chat "Why did AAPL drop at the end of July?", then "Was that just Apple, or was the whole market down that day?"
+5. Ask about a ticker that hasn't been ingested.
+6. Spend 30 seconds on the driver hint idea and DECISIONS.md.
+
+## Phases
 
 | Phase | Budget | Status |
 |-------|--------|--------|
-| 0 Scaffold | 15 min | ✅ |
-| 1 Prices & movements | 40 min | ✅ |
-| 2 News & explanations | 60 min | ✅ |
-| 3 Data API | 35 min | ✅ |
-| 4 Chat | 45 min | ✅ |
-| 5 Ship (protected) | 35 min | 🟡 code + docs done; video + answers are yours |
+| 0 Scaffold | 15 min | done |
+| 1 Prices and movements | 40 min | done |
+| 2 News and explanations | 60 min | done |
+| 3 Data API | 35 min | done |
+| 4 Chat | 45 min | done |
+| 5 Ship | 35 min | done except the video and the written answers |
 
-## Done & verified
+What shipped in each ticket, with the numbers from the live runs, is in [PLAN.md](PLAN.md).
 
-- **T0-1 scaffold** — `pytest` 1 passed; `/health` → 200 with `exa_configured` / `openai_configured` true; `data/app.db` created and gitignored.
-- **T1-1 models + price ingest** — live: AAPL/SPY/XLK 321 rows each; unknown ticker → `TickerNotFound`.
-- **T1-2 movement detection** — 19 unit tests; live AAPL 1y @2% → 40 movements (23 idiosyncratic / 11 sector / 6 market); biggest 2026-07-31 −7.35%, z −4.1, volume ×2.6.
-- **T1-3 conventions retrofit** — 27 tests, `ruff check` + `ruff format --check` clean; live AAPL run through provider → repositories → detection gives the same 40 movements. *Schema changed (enum columns): delete `data/app.db` if you have an old one (D2).*
-- **T2-1 Exa news provider** — 11 tests (call shape, normalisation, error mapping, dedupe); live search for AAPL's 2026-07-31 drop returned 8 on-topic in-window articles at $0.007.
-- **T2-3 explanation** — 7 tests; live on gpt-5.4-mini both "done when" cases pass (see PLAN.md T2-3).
-- **T2-4 pipeline + jobs** — 7 tests (idempotent re-run, cost guard, partial-failure retry, failed-job path); live AAPL 1y end-to-end, numbers in PLAN.md T2-4.
-- **T2-2 tiers** — 19 tests; live AAPL refresh + MSFT ingest (numbers in PLAN.md T2-2). Local `data/app.db` now holds AAPL and MSFT, 25 explained movements each.
-- **T3-1/T3-2 data API** — 36 tests; every route exercised live with curl against real AAPL/MSFT data, including error paths and a zero-cost re-ingest.
-- **T4-1/T4-2 chat** — 13 tests; four live conversations incl. a follow-up and an un-ingested ticker (transcripts summarised in PLAN.md T4).
-- **T5-1/T5-2** — README walkthrough commands match the live runs; fresh clone: 121 passed, boots without `.env`.
+## Known gaps
 
-## Built but UNVERIFIED
+- Cached news searches never expire, so a move ingested on the day it happens won't pick up later articles (D15).
+- Only the N largest moves in the range are explained, so a small recent move can be left unexplained.
+- Accuracy was checked by looking at known days. It was not measured.
 
-- **CI workflow** (`.github/workflows/ci.yml`) — will first run when this branch's PR opens. The same three commands pass in a fresh clone on Windows; Linux is unverified until then.
+## Running it
 
-## Open loops (need the human)
+```bash
+uvicorn app.main:app      # docs at http://localhost:8000/docs
+pytest
+ruff check . && ruff format --check .
+```
 
-- ~~Exa + OpenAI keys~~ ✅ both present in `.env`. `OPENAI_MODEL=gpt-5.4-mini`.
-- **Demo video** (T5-4) — yours to record; suggested script: ingest → filtered GET → chat + follow-up.
-- **Submission answers** — [SUBMISSION.md](SUBMISSION.md) gets drafted from DECISIONS.md in T5-3, but "did you get stuck" and "are you happy" need your voice.
+The local `data/app.db` holds AAPL and MSFT with 25 explained movements each. Delete it after any model change, because there are no migrations (D2).
 
-## Immediate next task
+## How we work
 
-No code tasks left. **For the human:** (1) push + merge `initial-development/T5-ship` and check the CI run is green; (2) edit [SUBMISSION.md](SUBMISSION.md) — especially Q2–Q4 — and delete its DRAFT note; (3) record the video; (4) submit the repo link. Suggested 3-minute demo: `/docs` overview → `POST /tickers/NVDA/ingest` and poll status (shows stages + cost) → `GET /tickers/AAPL?direction=down&category=macro&min_relevance=0.5&include_prices=false` → chat question + follow-up → ask about an un-ingested ticker → 30 s on the driver-hint idea and DECISIONS.md.
+- Follow [CONVENTIONS.md](CONVENTIONS.md).
+- One branch per epic, named `initial-development/T<epic>-<description>`, cut from up-to-date `main`. One commit per ticket. The user pushes and merges; the agent never pushes or commits to `main`.
+- Per ticket: implement, run `ruff format` and `ruff check`, run `pytest`, do one live check, update the docs, commit.
+- A change from PLAN.md gets an entry in DECISIONS.md when it is made.
 
-## How we work (match this)
+## Read order
 
-- **Follow [CONVENTIONS.md](CONVENTIONS.md)** — one class per file, constants/enums (no magic values), Protocol-backed providers wired in `dependencies.py`, repositories for DB access, typed errors.
-- **One branch per epic: `initial-development/T<epic>-<description>`** (e.g. `initial-development/T2-news-and-explanations`), cut from up-to-date `main`. One commit per ticket. The user pushes when the epic is done.
-- **The agent never pushes and never commits to `main`.** The user pushes branches and merges.
-- Per ticket: implement → `ruff format` + `ruff check` → `pytest` → one manual smoke check → update this file → commit.
-- A deviation from PLAN.md gets a `D` entry in DECISIONS.md at the moment it's made — those entries become the submission answers.
-- Timebox blown → take the phase's cut line. Phase 5 time is not borrowable.
-
-## Read order for a fresh agent
-
-1. This file → 2. [CONVENTIONS.md](CONVENTIONS.md) → 3. [PLAN.md](PLAN.md) (tickets, data model, layout) → 4. [DECISIONS.md](DECISIONS.md) → 5. [ROADMAP.md](ROADMAP.md) for phase goals and cut lines.
+This file, then [CONVENTIONS.md](CONVENTIONS.md), [PLAN.md](PLAN.md), [DECISIONS.md](DECISIONS.md) and [ROADMAP.md](ROADMAP.md).

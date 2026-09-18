@@ -1,138 +1,99 @@
-# Stock Movement Explainer — Roadmap
+# Roadmap
 
-## Guiding principle
+Written before any code. Tickets are in [PLAN.md](PLAN.md) and the reasoning is in [DECISIONS.md](DECISIONS.md).
 
-Ship the core loop first. **A ticker goes in; a list of major price movements comes out, each with a cited, honest explanation.** That loop has to work end-to-end (one ticker, company news only) before anything is layered on. The API and chat are views over that stored result — they never do the expensive work themselves.
+## Approach
 
-Total budget: **4 hours**. Every phase has a timebox and a cut line. When a timebox blows, take the cut, don't borrow from Phase 5 — an unexplained repo scores worse than a missing feature.
+Build the core loop first: a ticker goes in, and a list of major price movements comes out, each with a cited explanation. Get that working for one ticker with company news only, then add to it. The API and chat read the stored result and never do the expensive work themselves.
 
-Tickets live in [PLAN.md](PLAN.md); choices and tradeoffs in [DECISIONS.md](DECISIONS.md); live status in [START_HERE.md](START_HERE.md).
+The budget is 4 hours. Each phase has a timebox and a cut line. If a phase overruns, take the cut and leave Phase 5's time alone, because a repo nobody can run scores worse than a missing feature.
 
----
+Stack: Python 3.11, FastAPI, SQLAlchemy 2 with SQLite, yfinance, Exa (`exa-py`), OpenAI, pytest.
 
-## Architecture at a glance
+## Phase 0: Scaffold (15 min)
 
-```
-            POST /tickers/{t}/ingest
-                      │
-   ┌──────────────────▼───────────────────┐
-   │ pipeline (background task)           │
-   │  1. prices     yfinance → prices     │   + SPY and the sector ETF as benchmarks
-   │  2. movements  detect + classify     │   abs %, z-score, excess return vs SPY/sector
-   │  3. news       Exa, 3 tiers          │   company · industry/peers · macro (cached by date)
-   │  4. explain    OpenAI, structured    │   summary, category, confidence, cited article ids
-   └──────────────────┬───────────────────┘
-                      ▼
-                SQLite (SQLAlchemy)
-                      ▲
-        ┌─────────────┴─────────────┐
- GET /tickers/{t} (+filters)   POST /chat
- read-only over stored data    OpenAI tool-calling; tools = the same read queries
-```
+Goal: `uvicorn app.main:app` starts, `/health` answers and settings load from `.env`.
 
-**Stack:** Python 3.11 · FastAPI · SQLAlchemy 2 + SQLite · yfinance · Exa (`exa-py`) · OpenAI · pytest.
+- `requirements.txt`, `.env.example`, the `app/` package and settings with `pydantic-settings`
+- SQLite engine, with tables created on startup (D2)
 
----
+Exit: `GET /health` returns 200 and `pytest` runs.
 
-## Phase 0 — Scaffold (15 min)
+## Phase 1: Prices and movement detection (40 min)
 
-**Goal:** `uvicorn app.main:app` boots, `/health` answers, config loads from `.env`.
+Goal: stored daily prices for a ticker and a list of major movements with enough context to guide the news search.
 
-- `requirements.txt`, `.env.example`, `app/` package layout, settings via `pydantic-settings`
-- SQLite engine + `create_all` on startup (no Alembic — D2)
+- Daily bars from yfinance, one year by default, plus SPY and the ticker's sector ETF for the same period
+- Company name, sector and industry from `yfinance.Ticker.info`
+- Detection (D3): a close-to-close change of at least the threshold, 2% by default. Also a z-score against trailing 60-day volatility
+- Driver hint (D4): return relative to SPY and the sector ETF gives `market`, `sector` or `idiosyncratic`
+- News window per movement: the previous trading day through the movement day, which covers after-hours earnings and weekends
 
-**Exit criteria:** `GET /health` → 200; `pytest` runs (zero tests is fine).
+Exit: unit tests pass on synthetic price series, and a real AAPL run gives a sensible list.
 
----
+Cut: drop the sector ETF and keep SPY.
 
-## Phase 1 — Prices & movement detection (40 min)
+## Phase 2: News and explanations (60 min)
 
-**Goal:** For a ticker, stored daily prices and a list of "major movements" with enough context to guide the news search.
+Goal: each movement has articles from three tiers and an LLM explanation that cites them.
 
-- Fetch daily OHLCV via yfinance (default 1y; `start`/`end` override), plus **SPY** and the ticker's **sector ETF** over the same window
-- Company profile (name, sector, industry) from `yfinance.Ticker.info`, cached
-- Detection (D3): close-to-close return; major when `|return| ≥ threshold` (default 2%). Also store a **z-score vs trailing 60-day volatility** so a 2% day in KO and a 2% day in TSLA aren't treated as equally notable
-- **Driver hint (D4):** excess return vs SPY and vs sector ETF → `market` / `sector` / `idiosyncratic`. The price data itself says which news tier most likely explains the move
-- News window per movement = previous trading day → movement day (covers after-hours earnings and weekends)
+- A `NewsProvider` protocol with an Exa implementation and a fake for tests
+- Three tiers (D5): company news, industry and competitor news, and macro news. Macro searches don't depend on the ticker, so they are cached and shared
+- Cost limit: only the N largest movements get news, 25 by default
+- Explanation (D6): one structured-output call per movement returning a summary, a category, a confidence and per-article relevance. `unexplained` is allowed
+- Re-ingest skips work that is already done
 
-**Exit criteria:** unit tests pass on synthetic series (threshold edges, z-score warm-up, driver hint, Monday window); a real `AAPL` run stores sane movements.
+Exit: a known AAPL earnings day is categorised `company`, a known market-wide selloff is categorised `macro`, and both cite real URLs.
 
-**Cut line:** drop the sector ETF (keep SPY only).
+Cut: drop competitors and search on the industry name only. Then drop per-article relevance.
 
----
+## Phase 3: Data API (35 min)
 
-## Phase 2 — News & explanations (60 min)
+Goal: the endpoint that returns all stock and news data for a ticker, with filters.
 
-**Goal:** Each movement has relevant articles across three tiers and an LLM-written explanation that cites them.
+- `POST /tickers/{ticker}/ingest` returns 202 and a job (D7). `GET /tickers/{ticker}/status` reports progress
+- `GET /tickers/{ticker}` returns the company, prices and movements with explanations and articles. Filters cover dates, direction, size, category, confidence and tier, with pagination
+- `GET /tickers/{ticker}/movements/{date}` returns one movement in full
+- Clear errors for an unknown ticker, a ticker that isn't ingested and a bad filter
 
-- `NewsProvider` protocol; **Exa** implementation (date-bounded, news category, highlights rather than full text). Fake provider for tests
-- Three tiers (D5):
-  - **[Easy] company** — `"{name} ({ticker})"` news in the window
-  - **[Medium] industry / competitors** — industry string from the profile + peers (LLM-suggested once per ticker, cached)
-  - **[Hard] macro** — ticker-independent query per date, **cached by date and shared across tickers**
-- Cost guard: only the top-N movements by magnitude get news (default 25); tier order follows the driver hint
-- **Explain (D6):** one structured-output OpenAI call per movement → `summary`, `category` (company / industry / macro / unexplained), `confidence`, `cited_article_ids`, per-article relevance. "Unexplained" is a valid answer — no invented causes
-- Everything is idempotent: re-ingest skips movements that already have news + explanation
+Exit: API tests pass against a seeded in-memory database with fake providers, and `/docs` reads well.
 
-**Exit criteria:** ingesting `AAPL` for a year yields explanations where a known earnings day is tagged `company` and a known broad sell-off day is tagged `macro`, each citing real URLs.
+Cut: drop the single-movement endpoint and the tier and confidence filters.
 
-**Cut line:** drop peers (industry string only) → then drop per-article relevance.
+## Phase 4: Chat (45 min)
 
----
+Goal: a usable chat endpoint that answers from the stored data.
 
-## Phase 3 — Data API (35 min)
+- `POST /chat` takes `{message, ticker?, conversation_id?}` and returns `{answer, citations[], conversation_id}`
+- OpenAI tool calling (D8) over read-only tools that use the same query layer as the REST endpoints
+- Conversation history stored by `conversation_id`, with a limit on tool rounds
+- The system prompt tells the model to answer only from tool results, to cite article URLs, and to say when data is missing
 
-**Goal:** The "fetch all stock and news data for a ticker" endpoint, with useful filters.
+Exit: "Why did AAPL drop in early August?" gets an answer with citations, and a follow-up works through the conversation id.
 
-- `POST /tickers/{ticker}/ingest` → 202 + job status (background task, D7); `GET /tickers/{ticker}/status`
-- `GET /tickers/{ticker}` — company, prices, movements → explanation → articles. Filters: `start`, `end`, `min_abs_change`, `direction`, `category`, `min_confidence`, `tier`, `include_prices`, `include_news`, `limit`/`offset`
-- `GET /tickers/{ticker}/movements/{date}` — one movement in full
-- Clear errors: unknown ticker 404, not-yet-ingested 409 with a pointer to ingest, bad filter 422
+Cut: drop stored history and have the client send it. Then drop article search.
 
-**Exit criteria:** API tests pass against a seeded in-memory DB with fake providers (no network, no keys); OpenAPI docs at `/docs` read well.
+## Phase 5: Ship (35 min, protected)
 
-**Cut line:** drop the single-movement endpoint and `tier`/`min_confidence` filters.
+Goal: a reviewer can clone it, run it and understand it in five minutes.
 
----
-
-## Phase 4 — Chat (45 min)
-
-**Goal:** A usable chat endpoint grounded in the stored data.
-
-- `POST /chat` `{message, ticker?, conversation_id?}` → `{answer, citations[], conversation_id}`
-- OpenAI **tool-calling** (D8) over read-only tools: `list_movements`, `get_movement`, `search_articles`, `price_summary`, `list_tickers` — same query layer the REST endpoints use
-- Conversation history persisted per `conversation_id`; bounded tool-loop iterations
-- System prompt: answer only from tool results, cite article URLs, say so when data is missing (and name the ingest endpoint)
-
-**Exit criteria:** "Why did AAPL drop in early August?" returns a grounded answer with citations; a follow-up ("was that just Apple or the whole market?") works using the conversation id.
-
-**Cut line:** drop persistence (client sends history) → then drop `search_articles`.
-
----
-
-## Phase 5 — Ship (35 min, protected)
-
-**Goal:** A reviewer can clone, run, and understand it in five minutes.
-
-- README: what it is, quickstart, `.env` keys, curl examples for every endpoint, architecture sketch, limitations
-- Full test run green; one fresh-clone dry run of the quickstart
-- [SUBMISSION.md](SUBMISSION.md): the four written answers, drawn from DECISIONS.md
-- Short demo video (ingest → filtered GET → chat with follow-up)
+- README with quickstart, curl examples for every endpoint, an architecture summary and limitations
+- A full test pass and a dry run of the quickstart from a fresh clone
+- [SUBMISSION.md](SUBMISSION.md) with the four written answers
+- A short demo video
 - Push to GitHub
 
-**Exit criteria:** fresh venv + README steps → working demo.
+Exit: a fresh venv plus the README steps gives a working demo.
 
----
+## Stretch, only after Phase 5
 
-## Stretch (only if Phases 0–5 are done)
-
-- Committed sample dataset so reviewers without keys can explore the API and chat's read tools
-- Streaming chat responses (SSE)
-- Chat tool that triggers ingest for an un-ingested ticker
-- Multi-day movements (drawdowns / runs), not just single days
-- SQLite FTS5 over article text for `search_articles`
+- A committed sample dataset for reviewers without keys
+- Streaming chat responses
+- A chat tool that starts an ingest
+- Multi-day movements
+- SQLite FTS5 for article search
 - Dockerfile
 
 ## Out of scope
 
-Auth, rate limiting, a durable job queue, Postgres, a frontend, intraday data, real-time updates. Each is named in the README's "what I'd do next" rather than half-built.
+Auth, rate limiting, a durable job queue, Postgres, a frontend, intraday data and real-time updates.

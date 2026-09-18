@@ -35,7 +35,7 @@ def select_for_explanation(movements: list[Movement], limit: int, refresh: bool 
     """Cost guard: only the `limit` largest moves (by absolute size) get paid news searches and LLM calls.
 
     Already-explained moves are skipped unless `refresh`; even then cached searches aren't repeated, so a refresh
-    costs the LLM calls plus whatever searches are genuinely new (e.g. a tier added since the last ingest).
+    costs the LLM calls plus whatever searches are new (e.g. a tier added since the last ingest).
     """
     largest = sorted(movements, key=lambda m: abs(m.pct_change), reverse=True)[:limit]
     return [m for m in largest if refresh or m.explanation is None]
