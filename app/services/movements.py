@@ -1,5 +1,6 @@
 """Movement detection. Pure functions over price series: no I/O, no database."""
 
+import math
 from datetime import date, timedelta
 
 import pandas as pd
@@ -68,7 +69,11 @@ def news_window(day: date, prev_trading_day: date) -> tuple[date, date]:
 
 
 def _optional(value) -> float | None:
-    return None if value is None or pd.isna(value) else float(value)
+    """None for missing or non-finite values. A zero average volume or a zero previous close gives inf, which is
+    not valid JSON and means nothing as a statistic."""
+    if value is None or pd.isna(value) or not math.isfinite(value):
+        return None
+    return float(value)
 
 
 def detect_movements(
@@ -105,7 +110,7 @@ def detect_movements(
         day = dates[i]
         pct = returns.iloc[i]
         # Rounded so float noise (1.9999999) can't drop a day sitting exactly on the threshold
-        if pd.isna(pct) or round(abs(pct), PCT_DECIMALS) < threshold_pct:
+        if pd.isna(pct) or not math.isfinite(pct) or round(abs(pct), PCT_DECIMALS) < threshold_pct:
             continue
         if (start and day < start) or (end and day > end):
             continue

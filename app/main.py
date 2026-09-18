@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -6,15 +7,22 @@ from fastapi.responses import JSONResponse
 from app.api import chat, tickers
 from app.config import get_settings
 from app.constants.api import API_VERSION, OPENAPI_TAGS
-from app.db import init_db
+from app.db import SessionLocal, init_db
 from app.errors import AppError
 from app.logging_config import configure_logging
+from app.repositories.ingest_jobs import fail_interrupted_jobs
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging(get_settings().log_level)
     init_db()
+    with SessionLocal() as session:
+        interrupted = fail_interrupted_jobs(session)
+    if interrupted:
+        logger.warning("closed %d ingest job(s) interrupted by a restart", interrupted)
     yield
 
 

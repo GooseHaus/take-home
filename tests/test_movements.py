@@ -107,3 +107,13 @@ def test_detected_window_uses_previous_trading_day():
     prices = frame([100, 100, 100, 100, 100, 105], start=date(2026, 1, 5))  # Mon..Fri, then Mon
     move = detect_movements(prices, None, None, threshold_pct=2.0)[0]
     assert move.date.weekday() == 0 and move.window_start.weekday() == 4
+
+
+def test_zero_volume_history_gives_no_ratio_instead_of_infinity():
+    prices = frame([100] * 6 + [105], volumes=[0] * 6 + [500])
+    (move,) = detect_movements(prices, None, None, threshold_pct=2.0)
+    assert move.volume_ratio is None
+
+
+def test_a_move_from_a_zero_close_is_not_a_movement():
+    assert detect_movements(frame([0.0, 5.0, 5.0]), None, None, threshold_pct=2.0) == []
