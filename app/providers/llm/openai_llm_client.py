@@ -2,10 +2,10 @@ import logging
 import time
 from typing import TypeVar
 
-from openai import OpenAI
+from openai import BadRequestError, OpenAI
 from pydantic import BaseModel
 
-from app.constants.llm import LLM_MAX_RETRIES, LLM_TIMEOUT_SECONDS
+from app.constants.llm import LLM_MAX_RETRIES, LLM_TIMEOUT_SECONDS, STRUCTURED_SAMPLING
 from app.domain import ChatTurn, ToolCall
 from app.errors import ProviderError, ProviderNotConfigured
 
@@ -23,12 +23,20 @@ class OpenAILLMClient:
 
     def structured(self, system_prompt: str, user_prompt: str, response_model: type[T]) -> T:
         started = time.perf_counter()
+        request = {
+            "model": self.model,
+            "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+            "response_format": response_model,
+        }
         try:
-            completion = self._client.chat.completions.parse(
-                model=self.model,
-                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                response_format=response_model,
-            )
+            try:
+                completion = self._client.chat.completions.parse(**request, **STRUCTURED_SAMPLING)
+            except BadRequestError as exc:
+                # Some models (reasoning models) reject sampling parameters. Fall back to the model's defaults.
+                if not any(name in str(exc) for name in STRUCTURED_SAMPLING):
+                    raise
+                logger.info("%s rejected sampling parameters; retrying with defaults", self.model)
+                completion = self._client.chat.completions.parse(**request)
         except Exception as exc:
             raise ProviderError(f"OpenAI call failed: {exc}") from exc
 

@@ -17,7 +17,7 @@ Main decisions and tradeoffs:
 
 - Ingest does all the paid work once and stores it. The data endpoint and chat only read (D1). News search and LLM calls for 25 moves take about a minute and cost money, so they don't belong in a GET. The cost is that data is only as fresh as the last ingest.
 - A major move is an absolute close-to-close change of 2% or more, as the brief suggests (D3). I also store a z-score against recent volatility, because 2% means something different for KO than for TSLA. Prices are split-adjusted so a split isn't detected as a crash (D12). Only single-day moves are covered.
-- Prices decide where to look for news (D4). Each move is compared with SPY and the sector ETF, which gives a hint of `market`, `sector` or `idiosyncratic`. The hint orders the searches and goes into the LLM prompt. This was my approach to the hard tier: finding macro news is easy, knowing when macro is the answer is not. In testing, every AAPL move with a market hint was categorised `macro`. The thresholds are hand-picked, so it is only a hint and never filters anything out.
+- Prices decide where to look for news (D4). Each move is compared with SPY and the sector ETF, which gives a hint of `market`, `sector` or `idiosyncratic`. The hint orders the searches and goes into the LLM prompt. This was my approach to the hard tier: finding macro news is easy, knowing when macro is the answer is not. In testing, most AAPL moves with a market hint were categorised `macro`. One of them flipped to `company` in a later run, which is how I learned the explanations were not stable between runs (D24). The thresholds are hand-picked, so it is only a hint and never filters anything out.
 - Exa for news (D5), because it can search back a full year. NewsAPI's free tier only goes back about 30 days. The three tiers are small strategy classes. Macro searches don't depend on the ticker, so their cache is shared between tickers. Exa's date filter drops undated pages, which costs some coverage.
 - Competitor prices do the same job for the industry tier (D20). The LLM suggests competitors with tickers, ingest fetches their prices, and each explanation sees how they moved that day. Competitors moving together points to an industry cause, and a stock moving alone points to a company cause.
 - The LLM can answer `unexplained` and can only cite the articles it was given (D6). Inventing a cause for every move would be the worst way for this to fail.
@@ -33,6 +33,7 @@ Mostly. It covers everything in the brief, and I think the price-based hint is a
 What I'm less happy with:
 
 - I checked accuracy by looking at known days (an earnings miss, market-wide selloffs). I did not measure it, so I can't say how often the category is right.
+- Results are not fully repeatable. Two ingests of one ticker can give a borderline move different categories. Temperature 0 and a seed reduced this in a small test but did not remove it.
 - Fresh news depends on someone running ingest again. There is no schedule.
 - Ingest is slower than it needs to be. I limited Exa to 4 parallel searches because I didn't know the rate limit.
 - There are a lot of files for a project this size. That was a deliberate choice for extensibility, but a reviewer could fairly call it heavy.
