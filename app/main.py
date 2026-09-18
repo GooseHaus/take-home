@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 
 from app.api import chat, tickers
 from app.config import get_settings
+from app.constants.api import API_VERSION, OPENAPI_TAGS
 from app.db import init_db
 from app.errors import AppError
 from app.logging_config import configure_logging
@@ -19,7 +20,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Stock Movement Explainer",
+    version=API_VERSION,
     description="Explains major daily stock price movements using company, industry and macro news.",
+    openapi_tags=OPENAPI_TAGS,
     lifespan=lifespan,
 )
 
@@ -33,7 +36,7 @@ async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
     return JSONResponse(status_code=exc.status_code, content={"error": {"code": exc.code, "message": exc.message}})
 
 
-@app.get("/health")
+@app.get("/health", tags=["health"], summary="Liveness check and whether the API keys are configured")
 def health():
     settings = get_settings()
     return {

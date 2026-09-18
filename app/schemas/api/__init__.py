@@ -1,5 +1,7 @@
 from app.schemas.api.article_response import ArticleResponse
 from app.schemas.api.company_response import CompanyResponse
+from app.schemas.api.error_body import ErrorBody
+from app.schemas.api.error_response import ErrorResponse
 from app.schemas.api.explanation_response import ExplanationResponse
 from app.schemas.api.ingest_job_response import IngestJobResponse
 from app.schemas.api.ingest_request import IngestRequest
@@ -14,6 +16,8 @@ from app.schemas.api.ticker_summary_response import TickerSummaryResponse
 __all__ = [
     "ArticleResponse",
     "CompanyResponse",
+    "ErrorBody",
+    "ErrorResponse",
     "ExplanationResponse",
     "IngestJobResponse",
     "IngestRequest",

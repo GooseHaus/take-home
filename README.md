@@ -19,6 +19,14 @@ uvicorn app.main:app
 
 API docs are at <http://localhost:8000/docs>. `GET /health` shows whether both keys loaded.
 
+The OpenAPI (Swagger) spec is also committed as YAML, so it can be read without running the app:
+
+- [openapi/openapi.yaml](openapi/openapi.yaml): the whole API
+- [openapi/tickers.yaml](openapi/tickers.yaml): ingest, status and the ticker data endpoints
+- [openapi/chat.yaml](openapi/chat.yaml): the chat endpoints
+
+Paste any of them into <https://editor.swagger.io> to browse it. They are generated from the code with `python -m scripts.export_openapi`, and a test fails if they are out of date.
+
 Tests run offline and need no keys:
 
 ```bash
@@ -177,7 +185,9 @@ app/
   prompts/        LLM prompts as .md files
   dependencies.py provider wiring
   config.py       settings from the environment
-tests/            145 offline tests, with fakes for each provider
+tests/            152 offline tests, with fakes for each provider
+openapi/          generated OpenAPI spec (YAML)
+scripts/          export_openapi.py
 development_docs/ roadmap, tickets, conventions and decision log
 ```
 

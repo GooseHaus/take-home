@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response, status
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.api.responses import INVALID_TICKER, MOVEMENT_NOT_FOUND, NOT_INGESTED, PROVIDER_UNAVAILABLE
 from app.config import Settings, get_settings
 from app.db import get_session
 from app.dependencies import get_llm_client, get_market_data_provider, get_news_provider, get_session_factory
@@ -39,6 +40,9 @@ def list_tickers(session: SessionDep):
     response_model=IngestJobResponse,
     status_code=status.HTTP_202_ACCEPTED,
     summary="Fetch prices, detect major movements, find news and explain them (runs in the background)",
+    responses={200: {"model": IngestJobResponse, "description": "An ingest is already running"}}
+    | INVALID_TICKER
+    | PROVIDER_UNAVAILABLE,
 )
 def ingest_ticker(
     ticker: str,
@@ -80,7 +84,12 @@ def ingest_ticker(
     return job
 
 
-@router.get("/{ticker}/status", response_model=IngestJobResponse, summary="Latest ingest job for a ticker")
+@router.get(
+    "/{ticker}/status",
+    response_model=IngestJobResponse,
+    summary="Latest ingest job for a ticker",
+    responses=NOT_INGESTED | INVALID_TICKER,
+)
 def ingest_status(ticker: str, session: SessionDep):
     ticker = ticker_data.normalize_ticker(ticker)
     job = get_latest_job(session, ticker)
@@ -93,6 +102,7 @@ def ingest_status(ticker: str, session: SessionDep):
     "/{ticker}",
     response_model=TickerDataResponse,
     summary="All stock and news data for a ticker: prices, major movements, explanations and articles",
+    responses=NOT_INGESTED | INVALID_TICKER,
 )
 def get_ticker(
     ticker: str,
@@ -111,6 +121,7 @@ def get_ticker(
     "/{ticker}/movements/{day}",
     response_model=MovementResponse,
     summary="One movement in full: stats, explanation and every article considered",
+    responses=MOVEMENT_NOT_FOUND | INVALID_TICKER,
 )
 def get_movement(ticker: str, day: date, session: SessionDep):
     return ticker_data.get_movement_detail(session, ticker_data.normalize_ticker(ticker), day)
