@@ -1,6 +1,6 @@
 """A small, fully explained dataset for API and chat tests.
 
-ACME has three movements:
+ACME has two peers: Globex (GLBX, with prices) and Initech (no ticker). It has three movements:
   2026-01-06  +5.00%  idiosyncratic  company   0.90   articles: acme-earnings (company 0.95), acme-store (company 0.10)
   2026-01-08  -4.00%  market         macro     0.70   articles: fed-hike (macro, 0.80)
   2026-01-12  +3.00%  sector         (not yet explained)   no articles
@@ -18,6 +18,8 @@ from tests.factories import article_hit, price_frame
 
 UP_DAY, DOWN_DAY, UNEXPLAINED_DAY = date(2026, 1, 6), date(2026, 1, 8), date(2026, 1, 12)
 CLOSES = [100, 105, 105, 100.8, 100.8, 103.824]
+# Globex: flat on ACME's up day, -3% alongside ACME's market-driven drop, +1% on the last move
+PEER_CLOSES = [50, 50, 50, 48.5, 48.5, 48.985]
 
 
 def _movement(ticker: str, day: date, pct: float, hint: DriverHint) -> Movement:
@@ -40,8 +42,10 @@ def _movement(ticker: str, day: date, pct: float, hint: DriverHint) -> Movement:
 
 
 def seed_ticker(session: Session, ticker: str = "ACME") -> None:
-    session.add(Company(ticker=ticker, name="Acme Corp", sector="Technology", industry="Widgets", peers=["Globex"]))
+    peers = [{"name": "Globex", "ticker": "GLBX"}, {"name": "Initech", "ticker": None}]
+    session.add(Company(ticker=ticker, name="Acme Corp", sector="Technology", industry="Widgets", peers=peers))
     upsert_prices(session, ticker, price_frame(CLOSES))
+    upsert_prices(session, "GLBX", price_frame(PEER_CLOSES))
 
     up = _movement(ticker, UP_DAY, 5.0, DriverHint.IDIOSYNCRATIC)
     down = _movement(ticker, DOWN_DAY, -4.0, DriverHint.MARKET)

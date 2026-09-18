@@ -37,6 +37,7 @@ def compact_movement(movement: MovementResponse, max_articles: int | None, with_
         "zscore": _rounded(movement.zscore, 1),
         "volume_ratio": _rounded(movement.volume_ratio, 1),
         "driver_hint": movement.driver_hint.value,
+        "peer_moves": {move.ticker: move.pct_change for move in movement.peer_moves},
         "category": explanation.category.value if explanation else None,
         "confidence": explanation.confidence if explanation else None,
         "explanation": explanation.summary if explanation else NOT_EXPLAINED,

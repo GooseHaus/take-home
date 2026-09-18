@@ -7,6 +7,7 @@ import pandas as pd
 from app.constants.movements import (
     BENCHMARK_MIN_ABS_PCT,
     BENCHMARK_MIN_SHARE,
+    MIN_PEERS_FOR_HINT,
     PCT_DECIMALS,
     VOL_MIN_PERIODS,
     VOL_WINDOW,
@@ -36,13 +37,26 @@ def benchmark_explains(pct: float, benchmark_pct: float | None) -> bool:
     return same_direction and abs(benchmark_pct) >= needed
 
 
-def driver_hint(pct: float, market_pct: float | None, sector_pct: float | None) -> DriverHint:
-    """Which news tier most likely explains the move (D4). A hint for ordering and prompting, never a filter."""
+def driver_hint(
+    pct: float, market_pct: float | None, sector_pct: float | None, peer_median_pct: float | None = None
+) -> DriverHint:
+    """Which news tier most likely explains the move (D4). A hint for ordering and prompting, never a filter.
+
+    Direct competitors moving together count as a sector move even when the broad sector ETF did not (D20).
+    """
     if benchmark_explains(pct, market_pct):
         return DriverHint.MARKET
-    if benchmark_explains(pct, sector_pct):
+    if benchmark_explains(pct, sector_pct) or benchmark_explains(pct, peer_median_pct):
         return DriverHint.SECTOR
     return DriverHint.IDIOSYNCRATIC
+
+
+def peer_median(day: date, peer_returns: dict[str, pd.Series] | None) -> float | None:
+    """Median same-day return of the peers that traded that day. None with fewer than MIN_PEERS_FOR_HINT values."""
+    values = [s[day] for s in (peer_returns or {}).values() if day in s.index and not pd.isna(s[day])]
+    if len(values) < MIN_PEERS_FOR_HINT:
+        return None
+    return float(pd.Series(values).median())
 
 
 def news_window(day: date, prev_trading_day: date) -> tuple[date, date]:
@@ -64,6 +78,7 @@ def detect_movements(
     threshold_pct: float,
     start: date | None = None,
     end: date | None = None,
+    peer_returns: dict[str, pd.Series] | None = None,
 ) -> list[DetectedMovement]:
     """Days where |close-to-close change| >= threshold_pct (D3).
 
@@ -110,7 +125,7 @@ def detect_movements(
                 sector_pct_change=sector_pct,
                 excess_vs_market=None if market_pct is None else round(float(pct) - market_pct, PCT_DECIMALS),
                 excess_vs_sector=None if sector_pct is None else round(float(pct) - sector_pct, PCT_DECIMALS),
-                driver_hint=driver_hint(float(pct), market_pct, sector_pct),
+                driver_hint=driver_hint(float(pct), market_pct, sector_pct, peer_median(day, peer_returns)),
                 window_start=window_start,
                 window_end=window_end,
             )

@@ -19,6 +19,7 @@ Main decisions and tradeoffs:
 - A major move is an absolute close-to-close change of 2% or more, as the brief suggests (D3). I also store a z-score against recent volatility, because 2% means something different for KO than for TSLA. Prices are split-adjusted so a split isn't detected as a crash (D12). Only single-day moves are covered.
 - Prices decide where to look for news (D4). Each move is compared with SPY and the sector ETF, which gives a hint of `market`, `sector` or `idiosyncratic`. The hint orders the searches and goes into the LLM prompt. This was my approach to the hard tier: finding macro news is easy, knowing when macro is the answer is not. In testing, every AAPL move with a market hint was categorised `macro`. The thresholds are hand-picked, so it is only a hint and never filters anything out.
 - Exa for news (D5), because it can search back a full year. NewsAPI's free tier only goes back about 30 days. The three tiers are small strategy classes. Macro searches don't depend on the ticker, so their cache is shared between tickers. Exa's date filter drops undated pages, which costs some coverage.
+- Competitor prices do the same job for the industry tier (D20). The LLM suggests competitors with tickers, ingest fetches their prices, and each explanation sees how they moved that day. Competitors moving together points to an industry cause, and a stock moving alone points to a company cause.
 - The LLM can answer `unexplained` and can only cite the articles it was given (D6). Inventing a cause for every move would be the worst way for this to fail.
 - Chat uses tool calling over the same queries as the REST API, not embeddings (D8, D18). Questions about this data are structured (ticker, dates, direction), so SQL filters are a better fit than similarity search. One `MovementFilters` model is the query string, the chat tool schema and the repository input (D17).
 - SQLite and in-process background jobs (D2, D7), so there is nothing to set up. This is acceptable because ingest can be repeated safely: if a job dies, posting it again resumes it at no extra cost.
@@ -27,7 +28,7 @@ Main decisions and tradeoffs:
 
 ## 2. Are you happy with your solution?
 
-Mostly. It covers everything in the brief, and I think the price-based hint is a good answer to the macro tier. It fails honestly: unexplained moves, tickers that aren't ingested and provider errors are all reported as what they are. It is cheap to run (about $0.50 and a minute for a first ticker, nothing for a re-run) and the 131 tests run offline.
+Mostly. It covers everything in the brief, and I think the price-based hint is a good answer to the macro tier. It fails honestly: unexplained moves, tickers that aren't ingested and provider errors are all reported as what they are. It is cheap to run (about $0.50 and a minute for a first ticker, nothing for a re-run) and the 145 tests run offline.
 
 What I'm less happy with:
 

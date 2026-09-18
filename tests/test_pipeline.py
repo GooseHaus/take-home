@@ -10,7 +10,7 @@ from app.enums import ExplanationCategory, IngestStage, JobStatus, NewsTier
 from app.errors import ProviderError
 from app.models import Article, Company, Explanation, IngestJob, Movement, MovementArticle, NewsSearchCache
 from app.repositories.ingest_jobs import create_job, get_active_job, get_latest_job
-from app.schemas.llm import ArticleRelevance, ExplanationOutput, PeersOutput
+from app.schemas.llm import ArticleRelevance, ExplanationOutput, PeersOutput, PeerSuggestion
 from app.services.pipeline import run_ingest
 from tests.factories import article_hit, price_frame
 from tests.fakes.fake_llm_client import FakeLLMClient
@@ -35,7 +35,9 @@ def market_data(*tickers: str) -> FakeMarketDataProvider:
 
 def llm_reply(user_prompt, response_model):
     if response_model is PeersOutput:
-        return PeersOutput(peers=["Globex", "Initech"])
+        return PeersOutput(
+            peers=[PeerSuggestion(name="Globex", ticker="GLBX"), PeerSuggestion(name="Initech", ticker=None)]
+        )
     ids = [int(chunk.split("]")[0]) for chunk in user_prompt.split("[id=")[1:]]
     return ExplanationOutput(
         summary="Acme moved on company news.",
@@ -142,7 +144,10 @@ def test_peers_are_suggested_once_and_cached_on_the_company(session):
     news, llm = FakeNewsProvider(), FakeLLMClient(llm_reply)
     ingest(session, news, llm)
     ingest(session, news, llm, refresh=True)
-    assert session.get(Company, "ACME").peers == ["Globex", "Initech"]
+    assert session.get(Company, "ACME").peers == [
+        {"name": "Globex", "ticker": "GLBX"},
+        {"name": "Initech", "ticker": None},
+    ]
     assert sum(1 for *_, model in llm.calls if model is PeersOutput) == 1
 
 

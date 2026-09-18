@@ -10,6 +10,9 @@ VOLUME_MIN_PERIODS = 5
 BENCHMARK_MIN_ABS_PCT = 1.0
 BENCHMARK_MIN_SHARE = 0.4
 
+# One competitor moving proves little. The peer median only counts as a benchmark with at least this many (D20)
+MIN_PEERS_FOR_HINT = 2
+
 # Published-date bounds are hard filters in the news API, so catch next-day write-ups too (D5)
 WINDOW_TRAILING_DAYS = 1
 

@@ -8,7 +8,7 @@ from app.enums import ExplanationCategory
 from app.errors import ProviderNotConfigured
 from app.main import app
 from app.repositories.ingest_jobs import create_job
-from app.schemas.llm import ExplanationOutput, PeersOutput
+from app.schemas.llm import ExplanationOutput, PeersOutput, PeerSuggestion
 from tests.factories import article_hit, price_frame
 from tests.fakes.fake_llm_client import FakeLLMClient
 from tests.fakes.fake_market_data_provider import FakeMarketDataProvider
@@ -18,7 +18,7 @@ from tests.seed import CLOSES, DOWN_DAY, UNEXPLAINED_DAY, UP_DAY, seed_ticker
 
 def llm_reply(user_prompt, response_model):
     if response_model is PeersOutput:
-        return PeersOutput(peers=["Globex"])
+        return PeersOutput(peers=[PeerSuggestion(name="Globex", ticker="GLBX")])
     return ExplanationOutput(
         summary="Explained.", category=ExplanationCategory.COMPANY, confidence=0.8, article_relevance=[]
     )

@@ -12,6 +12,7 @@ from datetime import date, datetime
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.constants.pipeline import LLM_MAX_WORKERS, MAX_ERRORS_RECORDED
+from app.domain import Peer
 from app.enums import IngestStage
 from app.errors import AppError, ProviderError
 from app.models import Company, IngestJob, Movement
@@ -28,7 +29,7 @@ from app.services.explain import build_user_prompt, prompt_articles, request_exp
 from app.services.movements import detect_movements
 from app.services.news.freshness import is_recent
 from app.services.news.search import fetch_news
-from app.services.peers import ensure_peers
+from app.services.peers import ensure_peers, ingest_peer_prices, load_peer_returns, peer_moves_on
 from app.services.price_ingest import benchmark_tickers, ingest_prices
 
 logger = logging.getLogger(__name__)
@@ -52,12 +53,12 @@ def needs_explanation(movement: Movement, updated_ids: set[int], refresh: bool) 
 
 
 def detect_and_store(
-    session: Session, company: Company, start: date, end: date, threshold_pct: float
+    session: Session, company: Company, start: date, end: date, threshold_pct: float, peers: list[Peer]
 ) -> list[Movement]:
     frames = [load_price_frame(session, t) for t in (company.ticker, *benchmark_tickers(company))]
     prices, market = frames[0], frames[1]
     sector = frames[2] if len(frames) > 2 else None
-    detected = detect_movements(prices, market, sector, threshold_pct, start, end)
+    detected = detect_movements(prices, market, sector, threshold_pct, start, end, load_peer_returns(session, peers))
     return upsert_movements(session, company.ticker, detected)
 
 
@@ -68,9 +69,15 @@ def _request(llm: LLMClient, prompt: str) -> ExplanationOutput | ProviderError:
         return exc
 
 
-def explain_movements(session: Session, llm: LLMClient, movements: list[Movement], company: Company) -> dict:
+def explain_movements(
+    session: Session, llm: LLMClient, movements: list[Movement], company: Company, peers: list[Peer]
+) -> dict:
     """Prompts are built and results saved on this thread; only the LLM calls fan out."""
-    prompts = [build_user_prompt(m, company, prompt_articles(session, m)) for m in movements]
+    peer_returns = load_peer_returns(session, peers)
+    prompts = [
+        build_user_prompt(m, company, prompt_articles(session, m), peer_moves_on(m.date, peers, peer_returns))
+        for m in movements
+    ]
     with ThreadPoolExecutor(max_workers=LLM_MAX_WORKERS) as pool:
         outputs = list(pool.map(lambda p: _request(llm, p), prompts))
 
@@ -107,14 +114,15 @@ def run_ingest(
         try:
             set_stage(session, job, IngestStage.PRICES)
             company = ingest_prices(session, market_data, ticker, start, end)
+            # Peers come before detection: their same-day moves feed the driver hint and the explanation (D20)
+            peers = ensure_peers(session, llm, company)
+            peer_tickers = ingest_peer_prices(session, market_data, peers, start, end)
 
-            set_stage(session, job, IngestStage.MOVEMENTS)
-            movements = detect_and_store(session, company, start, end, threshold_pct)
+            set_stage(session, job, IngestStage.MOVEMENTS, peer_prices=peer_tickers)
+            movements = detect_and_store(session, company, start, end, threshold_pct, peers)
             candidates = select_candidates(movements, max_movements_with_news, now.date())
 
             set_stage(session, job, IngestStage.NEWS, movements=len(movements), candidates=len(candidates))
-            if candidates:
-                ensure_peers(session, llm, company)
             news_stats = fetch_news(session, news, candidates, company, now)
             updated_ids = set(news_stats.pop("updated_movement_ids"))
             to_explain = [m for m in candidates if needs_explanation(m, updated_ids, refresh)]
@@ -122,7 +130,7 @@ def run_ingest(
             set_stage(
                 session, job, IngestStage.EXPLANATIONS, news=_without_errors(news_stats), to_explain=len(to_explain)
             )
-            explain_stats = explain_movements(session, llm, to_explain, company)
+            explain_stats = explain_movements(session, llm, to_explain, company, peers)
 
             errors = (news_stats["errors"] + explain_stats["errors"])[:MAX_ERRORS_RECORDED]
             finish_job(session, job, explained=explain_stats["explained"], errors=errors)
