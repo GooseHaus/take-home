@@ -118,8 +118,10 @@ curl "localhost:8000/tickers/AAPL"
 For a year of AAPL that is about 130 KB of unformatted JSON: the company profile, daily prices for the analysed period, every major movement, and for each one its explanation and the articles that explanation cited. To read it, either open <http://localhost:8000/docs> and run the request there, or ask for less and format it:
 
 ```bash
-curl "localhost:8000/tickers/AAPL?sort=magnitude&limit=3&include_prices=false" | python -m json.tool
+curl -sS "localhost:8000/tickers/AAPL?sort=magnitude&limit=3&include_prices=false" | python -X utf8 -m json.tool
 ```
+
+`-sS` hides the progress meter curl prints when its output is piped, but still shows errors. `-X utf8` makes Python read the piped text as UTF-8; without it, Windows decodes it as cp1252 and apostrophes come out garbled.
 
 The response is lean by default. Every search result is stored, but most are candidates the explanation rejected, and each has a text excerpt. Returning all of them made this response 633 KB, of which 85% was articles. `articles=all` and `include_snippets=true` bring them back.
 
@@ -231,7 +233,7 @@ Design notes:
 
 - Paid calls happen once, during ingest. The read endpoints are fast, filters are plain SQL, and nothing is billed twice.
 - Competitor prices do for the industry tier what SPY does for the macro tier. If the closest competitors moved the same way on the same day, the cause is probably industry-wide even when the headlines are about this company. If the stock moved alone, it is probably company-specific. Each movement's `peer_moves` are in the API response and in the chat tools.
-- The driver hint is how the macro tier is handled. Finding macro news is easy. Knowing when macro is the right answer is the hard part, and the price data answers that cheaply: if SPY fell 3% the same day, company headlines are probably not the cause. The hint sets the search order and is passed to the LLM as evidence. In testing, every AAPL move flagged as market-driven was categorised `macro`.
+- The driver hint is how the macro tier is handled. Finding macro news is easy. Knowing when macro is the right answer is the hard part, and the price data answers that cheaply: if SPY fell 3% the same day, company headlines are probably not the cause. The hint sets the search order and is passed to the LLM as evidence. In testing, most AAPL moves flagged as market-driven were categorised `macro`, but not all and not in every run (see Limitations).
 - The LLM may answer `unexplained`, and it can only cite articles it was given. Three of MSFT's 25 explained moves came back `unexplained`.
 - `MovementFilters` is defined once and used as the REST query string, the chat tool arguments and the repository input. The enums are shared by the database columns, the API and the LLM output schema.
 - The news source, the LLM and the market data provider each sit behind a Protocol and are wired in `app/dependencies.py`. News tiers and chat tools are small classes in a registry. Adding the industry and macro tiers took two new files and one registry line.
@@ -274,6 +276,7 @@ Without keys the app still starts and serves data that was already ingested. Ing
 ## Limitations
 
 - An explanation is the most likely cause according to the news found. It is not proof, and it is not investment advice.
+- Two ingests of the same ticker can disagree. The news search can return different articles, the LLM can suggest different competitors, and the explanation model is not deterministic. In one test the same AAPL move (2026-01-20, SPY down 2.04%) was `macro` in three runs and `company` at 0.68 confidence in a fourth. Explanation calls now use temperature 0 and a fixed seed, which made five repeats on identical evidence agree where default sampling gave four `macro` and one `company`. Confidence still moved between 0.72 and 0.84. Low-confidence verdicts are the ones most likely to change, so `min_confidence` is the filter to use when that matters.
 - Competitors listed in Asia close before the US session opens, so their same-date move lags by a day. The driver hint uses the median across competitors, which limits the effect. Competitor names and tickers come from the LLM and can be wrong; a ticker with no price data is skipped.
 - Only single-day moves are detected. A slow 10% slide over two weeks is missed.
 - Exa's published-date filter drops pages with a missing or wrong date, and a page with a wrong date can also be let in. The prompt tells the model to discard an article whose own text shows it is from after the move, but some cases can't be detected from the excerpt. One example in a test run: Apple's July 30 earnings release was indexed with a July 1 date and was cited for the July 2 move. The search window is extended by one day to pick up next-day coverage.

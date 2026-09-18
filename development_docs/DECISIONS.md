@@ -258,3 +258,29 @@ Also fixed here:
 - The chat `tool_calls` trace lists only the arguments the model supplied, not every default.
 
 Tradeoff: this changes the default response shape after the first version was documented. It was done before submission, so nothing depends on the old default. The analysed period is derived from job rows, not stored on the company, to avoid a schema change. A ticker whose only jobs predate stored parameters falls back to all stored prices.
+
+## D24. Explanations vary between runs; structured calls use temperature 0 and a seed
+
+Structured LLM calls (explanations and competitor suggestions) now send `temperature=0` and a fixed `seed`. If a model rejects those parameters, the call is retried with the model's defaults.
+
+Why: the README claimed that every AAPL move with a `market` hint was categorised `macro`. That was true of the runs I had looked at. In the author's third fresh ingest, the 2026-01-20 move (AAPL -3.46%, SPY -2.04%) came back `company` at 0.68, and the 2026-02-27 move changed from `macro` to `industry`. Stored verdicts that are filtered on should not depend on sampling luck.
+
+Measured on three AAPL moves, five repeats each, on identical prompts:
+
+| Move | Default sampling | temperature 0, seed |
+|---|---|---|
+| 2026-01-20 | 4 macro, 1 company | 5 macro |
+| 2026-02-27 | 5 industry | 5 industry |
+| 2026-03-31 | 5 macro | 5 macro |
+
+Confidence still varied (0.72 to 0.84 on the first move), so this narrows the variation and does not remove it. The sample is small.
+
+Sampling is one of three sources. The Exa search can return different articles on a different day, and the LLM can suggest different competitors (AAPL got Microsoft in one run and HP in another), which changes the industry query, the peer moves in the prompt and sometimes the driver hint. Within one database none of this shows, because searches and competitors are cached.
+
+The claim was corrected in the README and in SUBMISSION.md, and the README limitations now describe the behaviour with the example.
+
+Tradeoff: the chat endpoint keeps default sampling, since its answers are not stored or filtered on. A model that rejects `temperature` costs one extra failed request per call before the fallback.
+
+Revisit: an evaluation set, run several times, to report category agreement and accuracy as numbers. Majority vote over three explanation calls for low-confidence moves.
+
+Also fixed from the same manual test: the README's piped example now uses `curl -sS` (no progress meter) and `python -X utf8 -m json.tool` (Windows otherwise decodes the pipe as cp1252 and garbles apostrophes).
