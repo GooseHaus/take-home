@@ -106,7 +106,7 @@ Choices made while planning and building that a reviewer (or future me) would re
 
 ## D8 — Chat uses tool-calling over the query layer, not embeddings/RAG
 
-**Status:** 📋 Planned.
+**Status:** ✅ Implemented (T4-1). See D18 for how conversations are replayed.
 
 **Decision:** The chat model gets read-only tools that wrap the same `queries.py` functions as the REST endpoints. No vector store.
 
@@ -229,3 +229,17 @@ Choices made while planning and building that a reviewer (or future me) would re
 **Gotcha recorded:** FastAPI only parses a Pydantic model from the query string when it is the endpoint's *sole* query parameter; adding two loose `Query()` flags beside it silently turned the model into a required field. Hence the subclass.
 
 **Tradeoff:** One response carries prices + movements + articles, so it can be large (AAPL 1y ≈ 320 bars + 40 movements); `include_prices=false`, `include_news=false`, date bounds and pagination are the levers. Pagination applies to movements only, not prices.
+
+---
+
+## D18 — Store the whole conversation, replay only questions and answers
+
+**Status:** ✅ Implemented (T4-2).
+
+**Decision:** Every message of a chat turn — user, assistant tool calls, tool results, final answer — is persisted under the `conversation_id`. A follow-up turn replays only the last 12 user questions and final assistant answers; tool calls and results are not replayed.
+
+**Why:** Tool results are the bulk of the tokens (a `list_movements` page with articles is a few thousand), so replaying them makes every follow-up slower and dearer for little gain: the answers already carry the dates and tickers the next question refers to, and the model is told to re-query when it needs detail. It also removes a whole class of bug — truncating history can never separate a tool result from the call that produced it, which the chat API rejects. Verified live: "was that just Apple?" re-fetched 2026-07-31 with `get_movement` unprompted.
+
+**Tradeoff:** A follow-up that needs earlier detail costs one extra tool round. The stored trail is an audit log, not context. Messages are kept in chat-completions dict form, which couples storage to that wire format; acceptable while there is one LLM adapter (D9).
+
+**Also decided here:** `citations` are the articles whose URLs appear in the answer text *and* were returned by a tool in this turn, in order of appearance — grounded by construction rather than by trusting the model's own list. `tool_calls` is returned too, so a reader can see which lookups an answer was built from.

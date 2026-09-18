@@ -1,10 +1,10 @@
-# START HERE — Stock Movement Explainer (2026-09-18: Phases 0–1, conventions, Phases 0–3 done — data API live; next Phase 4 chat)
+# START HERE — Stock Movement Explainer (2026-09-18: Phases 0–1, conventions, Phases 0–4 done — chat live; next Phase 5 ship)
 
 > Living doc. Update the status line and the sections below at the end of every ticket.
 
 ## One-line status
 
-**Phases 0–1 done.** Prices (AAPL + SPY + sector ETF) ingest from yfinance into SQLite; movement detection with z-score, volume ratio, excess returns, driver hint and news window is unit-tested (20 tests) and smoke-tested live (AAPL 1y → 40 movements). Models are one-class-per-file (D10). **T1-3 retrofit done:** code follows [CONVENTIONS.md](CONVENTIONS.md) — constants, enums, Protocol-backed providers, repositories, typed errors, ruff clean, pinned deps (27 tests). **T2-1 done:** Exa news search behind `NewsProvider`, URL-deduped article storage (38 tests). **T2-3 done:** LLM explanations with structured output, prompts as files (45 tests); live: earnings day → `company` 0.98, market sell-off day → `macro` 0.72. **T2-4 done — the core loop is closed:** one call ingests a ticker end-to-end (live AAPL 1y: 28.8 s, $0.16, re-run free). **T2-2 done — Phase 2 complete:** company + industry + macro tiers, LLM-suggested peers, macro searches shared across tickers, `refresh` re-explain (71 tests). **Phase 3 done:** `POST /tickers/{t}/ingest`, `GET /tickers/{t}/status`, `GET /tickers/{t}` with the shared `MovementFilters`, `GET /tickers/{t}/movements/{date}`, `GET /tickers` (107 tests; verified live over HTTP). Branch `initial-development/T3-data-api` is ready to push. **Next: Phase 4 — T4-1 chat tools + loop, T4-2 conversations.**
+**Phases 0–1 done.** Prices (AAPL + SPY + sector ETF) ingest from yfinance into SQLite; movement detection with z-score, volume ratio, excess returns, driver hint and news window is unit-tested (20 tests) and smoke-tested live (AAPL 1y → 40 movements). Models are one-class-per-file (D10). **T1-3 retrofit done:** code follows [CONVENTIONS.md](CONVENTIONS.md) — constants, enums, Protocol-backed providers, repositories, typed errors, ruff clean, pinned deps (27 tests). **T2-1 done:** Exa news search behind `NewsProvider`, URL-deduped article storage (38 tests). **T2-3 done:** LLM explanations with structured output, prompts as files (45 tests); live: earnings day → `company` 0.98, market sell-off day → `macro` 0.72. **T2-4 done — the core loop is closed:** one call ingests a ticker end-to-end (live AAPL 1y: 28.8 s, $0.16, re-run free). **T2-2 done — Phase 2 complete:** company + industry + macro tiers, LLM-suggested peers, macro searches shared across tickers, `refresh` re-explain (71 tests). **Phase 3 done:** `POST /tickers/{t}/ingest`, `GET /tickers/{t}/status`, `GET /tickers/{t}` with the shared `MovementFilters`, `GET /tickers/{t}/movements/{date}`, `GET /tickers` (107 tests; verified live over HTTP). **Phase 4 done:** `POST /chat` (tool-calling over the shared read layer, grounded citations, tool trace) and `GET /chat/{id}`; follow-ups work via `conversation_id` (120 tests; verified live on gpt-5.4-mini). Branch `initial-development/T4-chat` is ready to push. **Every feature in the brief now exists. Next: Phase 5 — README, fresh-clone dry run, SUBMISSION.md answers, video.**
 
 ## The clock
 
@@ -16,7 +16,7 @@
 | 1 Prices & movements | 40 min | ✅ |
 | 2 News & explanations | 60 min | ✅ |
 | 3 Data API | 35 min | ✅ |
-| 4 Chat | 45 min | ⏳ |
+| 4 Chat | 45 min | ✅ |
 | 5 Ship (protected) | 35 min | ⏳ |
 
 ## Done & verified
@@ -30,6 +30,7 @@
 - **T2-4 pipeline + jobs** — 7 tests (idempotent re-run, cost guard, partial-failure retry, failed-job path); live AAPL 1y end-to-end, numbers in PLAN.md T2-4.
 - **T2-2 tiers** — 19 tests; live AAPL refresh + MSFT ingest (numbers in PLAN.md T2-2). Local `data/app.db` now holds AAPL and MSFT, 25 explained movements each.
 - **T3-1/T3-2 data API** — 36 tests; every route exercised live with curl against real AAPL/MSFT data, including error paths and a zero-cost re-ingest.
+- **T4-1/T4-2 chat** — 13 tests; four live conversations incl. a follow-up and an un-ingested ticker (transcripts summarised in PLAN.md T4).
 
 ## Built but UNVERIFIED
 
@@ -43,7 +44,7 @@
 
 ## Immediate next task
 
-**T4-1** — chat tool classes in a registry (`list_tickers`, `list_movements` taking `MovementFilters`, `get_movement`, `search_articles`, `price_summary`), tool JSON schemas generated from their Pydantic args, `LLMClient` gains a tool-calling method, bounded loop, citations collected from tool results. Then **T4-2** — conversations persisted by `conversation_id`. Run the API locally with `uvicorn app.main:app` (docs at `/docs`).
+**T5-1** — README: what it is, quickstart (venv, `pip install -r requirements.txt`, `.env`, `uvicorn app.main:app`), curl walkthrough (ingest → status → filtered GET → chat + follow-up), architecture sketch, limitations / what's next. Then **T5-2** fresh-clone dry run, **T5-3** SUBMISSION.md drafts from DECISIONS.md, optional CI workflow (ruff + pytest). Video (T5-4) is the user's.
 
 ## How we work (match this)
 
