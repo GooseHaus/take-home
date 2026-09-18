@@ -27,12 +27,12 @@ Main decisions and tradeoffs:
 
 ## 2. Are you happy with your solution?
 
-Mostly. It covers everything in the brief, and I think the price-based hint is a good answer to the macro tier. It fails honestly: unexplained moves, tickers that aren't ingested and provider errors are all reported as what they are. It is cheap to run (about $0.50 and a minute for a first ticker, nothing for a re-run) and the 121 tests run offline.
+Mostly. It covers everything in the brief, and I think the price-based hint is a good answer to the macro tier. It fails honestly: unexplained moves, tickers that aren't ingested and provider errors are all reported as what they are. It is cheap to run (about $0.50 and a minute for a first ticker, nothing for a re-run) and the 131 tests run offline.
 
 What I'm less happy with:
 
 - I checked accuracy by looking at known days (an earnings miss, market-wide selloffs). I did not measure it, so I can't say how often the category is right.
-- News for recent moves can go stale. Searches are cached permanently, and only the 25 largest moves in the range are explained, so a small move from yesterday may not be explained at all.
+- Fresh news depends on someone running ingest again. There is no schedule.
 - Ingest is slower than it needs to be. I limited Exa to 4 parallel searches because I didn't know the rate limit.
 - There are a lot of files for a project this size. That was a deliberate choice for extensibility, but a reviewer could fairly call it heavy.
 
@@ -41,7 +41,7 @@ What I'm less happy with:
 - Build a small evaluation set first: 20 to 30 known events with the expected category, and tune the prompts and thresholds against it.
 - Agree the conventions before writing any code, not after Phase 1.
 - Only run the macro search when the market actually moved that day. That would cut about a third of the searches.
-- Expire cached searches for recent windows, and always explain the last few days of moves regardless of size.
+- Think about re-ingest from the start. I first cached every search permanently, which was wrong for a move from yesterday, and I fixed it late (D19).
 
 ## 4. Did you get stuck anywhere?
 
@@ -52,4 +52,4 @@ Nothing blocked me for long. Four things cost time:
 - In-memory SQLite gives each connection its own empty database, so tests couldn't see the tables until the engine used a single shared connection.
 - Three tests passed only on my machine. A dry run from a fresh clone, with a new venv and no `.env`, showed they were using my real API key because they never injected a fake LLM. The test setup now blanks the keys, so local runs behave like CI.
 
-One design change came from testing. After I added the industry and macro tiers, moves that were already explained were skipped, so they never saw the new articles. I added a `refresh` flag that re-explains a move without repeating any cached search (D15).
+One design change came from testing. After I added the industry and macro tiers, moves that were already explained were skipped, so they never saw the new articles. I added a `refresh` flag that re-explains a move without repeating any cached search (D15). Later, a question about stale news led to D19: searches for recent moves run again until the news settles, and recent moves are always explained.

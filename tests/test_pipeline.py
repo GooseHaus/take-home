@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -57,10 +57,12 @@ def news_by_tier(query: str):
     return [article_hit("acme-earnings")]
 
 
-def ingest(session, news, llm, ticker="ACME", limit=25, data=None, refresh=False) -> IngestJob:
+def ingest(session, news, llm, ticker="ACME", limit=25, data=None, refresh=False, now=None) -> IngestJob:
+    """`now` defaults to the real clock, which is months after the test windows, so their searches count as settled."""
     job = create_job(session, ticker, {})
     session.commit()
-    run_ingest(SessionLocal, job.id, ticker, START, END, 2.0, limit, data or market_data(ticker), news, llm, refresh)
+    provider = data or market_data(ticker)
+    run_ingest(SessionLocal, job.id, ticker, START, END, 2.0, limit, provider, news, llm, refresh, now)
     session.expire_all()
     return session.get(IngestJob, job.id)
 
@@ -74,6 +76,7 @@ def test_full_run_searches_every_tier_and_explains_every_movement(session):
     assert job.detail["news"] == {
         "searches_run": MOVES * TIERS,
         "searches_cached": 0,
+        "searches_refreshed": 0,
         "cost_dollars": pytest.approx(0.063),
     }
     assert set(news.queries()) == {COMPANY_QUERY, INDUSTRY_QUERY, MACRO_QUERY}
@@ -104,7 +107,8 @@ def test_rerun_makes_no_paid_calls(session):
 
     job = ingest(session, news, llm)
     assert (len(news.calls), len(llm.calls)) == calls_after_first
-    assert job.status is JobStatus.DONE and job.detail["selected"] == 0 and job.detail["explained"] == 0
+    assert job.status is JobStatus.DONE and job.detail["to_explain"] == 0 and job.detail["explained"] == 0
+    assert job.detail["candidates"] == MOVES and job.detail["news"]["searches_cached"] == MOVES * TIERS
     assert session.query(Movement).count() == MOVES and session.query(NewsSearchCache).count() == MOVES * TIERS
 
 
@@ -203,3 +207,60 @@ def test_active_and_latest_job_lookups(session):
     assert get_active_job(session, "ACME").id == first.id
     ingest(session, FakeNewsProvider(), FakeLLMClient(llm_reply))
     assert get_latest_job(session, "ACME").id > first.id
+
+
+# --- news freshness (D19) --------------------------------------------------------------------------------------------
+# Moves fall on Jan 6, 8 and 12, with news windows ending Jan 7, 9 and 13. A search is settled once it has run at
+# least two days after its window closed.
+
+
+def at(day: int) -> datetime:
+    return datetime(2026, 1, day, 12, tzinfo=UTC)
+
+
+def test_searches_for_a_recent_move_rerun_until_the_news_has_settled(session):
+    later_coverage = []
+    news = FakeNewsProvider(responder=lambda query: [article_hit("first-report"), *later_coverage])
+    llm = FakeLLMClient(llm_reply)
+
+    first = ingest(session, news, llm, now=at(13))
+    assert first.detail["news"]["searches_run"] == MOVES * TIERS and explanation_calls(llm) == MOVES
+
+    # Next day a follow-up article exists. Only the Jan 12 move's window (ends Jan 13) is still open.
+    later_coverage.append(article_hit("analyst-follow-up"))
+    second = ingest(session, news, llm, now=at(14))
+    assert second.detail["news"]["searches_refreshed"] == TIERS
+    assert second.detail["news"]["searches_cached"] == (MOVES - 1) * TIERS
+    assert second.detail["to_explain"] == 1 and explanation_calls(llm) == MOVES + 1
+    latest = session.query(Movement).filter_by(date=date(2026, 1, 12)).one()
+    assert {ln.article.url.rsplit("/", 1)[1] for ln in latest.article_links} == {"first-report", "analyst-follow-up"}
+
+    # Still unsettled on Jan 14's fetch, so Jan 16 searches again, finds nothing new, and pays for no explanation
+    third = ingest(session, news, llm, now=at(16))
+    assert third.detail["news"]["searches_refreshed"] == TIERS and third.detail["to_explain"] == 0
+
+    # The Jan 16 fetch is two days past the window, so from now on it is a plain cache hit
+    fourth = ingest(session, news, llm, now=at(20))
+    assert fourth.detail["news"]["searches_run"] == 0 and fourth.detail["news"]["searches_cached"] == MOVES * TIERS
+
+
+def test_a_recent_small_move_is_explained_even_outside_the_largest_n(session):
+    news, llm = FakeNewsProvider([article_hit("acme-a")]), FakeLLMClient(llm_reply)
+    job = ingest(session, news, llm, limit=1, now=at(17))  # "recent" reaches back to Jan 10
+    explained = {m.pct_change for m in session.query(Movement) if m.explanation}
+    assert explained == {5.0, 3.0}  # the largest move, plus the small one from Jan 12; the -4% from Jan 8 is neither
+    assert job.detail["candidates"] == 2
+
+
+def test_a_failed_rerun_keeps_the_articles_already_found(session):
+    news, llm = FakeNewsProvider([article_hit("first-report")]), FakeLLMClient(llm_reply)
+    ingest(session, news, llm, now=at(13))
+
+    class BrokenNews(FakeNewsProvider):
+        def search(self, query, start, end, limit):
+            raise ProviderError("exa down")
+
+    job = ingest(session, BrokenNews(), llm, now=at(14))
+    latest = session.query(Movement).filter_by(date=date(2026, 1, 12)).one()
+    assert job.status is JobStatus.DONE and len(job.detail["errors"]) == TIERS
+    assert [ln.article.url.rsplit("/", 1)[1] for ln in latest.article_links] == ["first-report"]

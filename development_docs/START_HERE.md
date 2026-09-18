@@ -1,6 +1,6 @@
 # Start here
 
-Status as of 2026-09-18: all code is done and merged. 121 tests pass, ruff is clean and CI is green.
+Status as of 2026-09-18: all code is done. 131 tests pass and ruff is clean.
 
 ## What's left
 
@@ -32,8 +32,7 @@ What shipped in each ticket, with the numbers from the live runs, is in [PLAN.md
 
 ## Known gaps
 
-- Cached news searches never expire, so a move ingested on the day it happens won't pick up later articles (D15).
-- Only the N largest moves in the range are explained, so a small recent move can be left unexplained.
+- News for a recent move only updates when ingest is run again. Nothing runs on a schedule (D19).
 - Accuracy was checked by looking at known days. It was not measured.
 
 ## Running it
