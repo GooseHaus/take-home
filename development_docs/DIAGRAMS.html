@@ -1,0 +1,654 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Diagrams</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:1200px;margin:2rem auto;padding:0 1rem;color:#222}
+code{background:#f3f3f3;padding:0 .2em} pre.mermaid{background:#fff;overflow-x:auto}
+h2{margin-top:3rem;border-bottom:1px solid #ddd}
+</style></head><body>
+<h1>Diagrams</h1>
+<p>Mermaid diagrams of the system for the debrief. Companion to <a href='REVIEW_GUIDE.md'>REVIEW_GUIDE.md</a>. GitHub, VS Code and most Markdown previewers render them.</p>
+<h2>1. Layers</h2>
+<p>Who is allowed to call whom. Arrows point from caller to callee, and nothing skips a layer.</p>
+<pre class='mermaid'>flowchart TD
+    Client([HTTP client])
+    Client --&gt; API
+
+    subgraph API[&quot;app/api&quot;]
+        tickers[tickers.py]
+        chat[chat.py]
+    end
+
+    subgraph Services[&quot;app/services&quot;]
+        ingest_requests[ingest_requests.py]
+        pipeline[pipeline.py]
+        ticker_data[ticker_data.py]
+        chat_service[chat/chat_service.py]
+        price_ingest[price_ingest.py]
+        movements[movements.py]
+        peers[peers.py]
+        news[news/search.py + tiers]
+        explain[explain.py]
+        tools[chat/tools/*]
+    end
+
+    subgraph Repos[&quot;app/repositories&quot;]
+        repos[(one file per table)]
+    end
+
+    subgraph Providers[&quot;app/providers&quot;]
+        yf[YFinanceMarketDataProvider]
+        exa[ExaNewsProvider]
+        oai[OpenAILLMClient]
+    end
+
+    DB[(SQLite)]
+    Yahoo([yfinance])
+    ExaAPI([Exa])
+    OpenAI([OpenAI])
+
+    tickers --&gt; ingest_requests
+    tickers --&gt; pipeline
+    tickers --&gt; ticker_data
+    chat --&gt; chat_service
+    chat_service --&gt; tools
+    tools --&gt; ticker_data
+    pipeline --&gt; price_ingest
+    pipeline --&gt; peers
+    pipeline --&gt; movements
+    pipeline --&gt; news
+    pipeline --&gt; explain
+    Services --&gt; repos
+    price_ingest --&gt; yf
+    peers --&gt; yf
+    peers --&gt; oai
+    news --&gt; exa
+    explain --&gt; oai
+    chat_service --&gt; oai
+    repos --&gt; DB
+    yf --&gt; Yahoo
+    exa --&gt; ExaAPI
+    oai --&gt; OpenAI
+</pre>
+<p><code>app/dependencies.py</code> picks the concrete provider for each Protocol. Tests replace those three functions with fakes.</p>
+<h2>2. Ingest flow</h2>
+<p><code>POST /tickers/{ticker}/ingest</code>, then the background task. Every database write happens on the pipeline thread. Only the Exa and OpenAI calls fan out.</p>
+<pre class='mermaid'>sequenceDiagram
+    autonumber
+    participant C as Client
+    participant R as tickers.py
+    participant J as ingest_requests.py
+    participant P as pipeline.run_ingest
+    participant Y as yfinance
+    participant O as OpenAI
+    participant E as Exa
+    participant DB as SQLite
+
+    C-&gt;&gt;R: POST /tickers/AAPL/ingest {lookback_days?, threshold_pct?, refresh?}
+    R-&gt;&gt;J: resolve() then open_job() under a lock
+    alt job already pending or running
+        J--&gt;&gt;R: existing job
+        R--&gt;&gt;C: 200 job
+    else
+        J-&gt;&gt;DB: insert ingest_jobs (pending)
+        R--&gt;&gt;C: 202 job
+        R-&gt;&gt;P: BackgroundTasks.add_task(run_ingest)
+    end
+
+    Note over P: stage = prices
+    P-&gt;&gt;Y: history(AAPL, start-100d, end), profile, history(SPY), history(sector ETF)
+    P-&gt;&gt;O: suggest competitors (skipped if cached on company row)
+    P-&gt;&gt;Y: history for each competitor ticker
+    P-&gt;&gt;DB: upsert companies and prices, commit
+
+    Note over P: stage = movements
+    P-&gt;&gt;P: detect_movements: pct &gt;= threshold, z-score, volume ratio, driver_hint
+    P-&gt;&gt;DB: upsert movements, delete days no longer qualifying, commit
+    P-&gt;&gt;P: select_candidates: N largest + last 7 days
+
+    Note over P: stage = news
+    P-&gt;&gt;P: plan_searches: one per (tier, scope, window)
+    P-&gt;&gt;DB: read news_search_cache
+    par up to 4 threads, uncached or unsettled searches only
+        P-&gt;&gt;E: search(query, window)
+    end
+    P-&gt;&gt;DB: upsert articles, save cache rows, link movement_articles, commit
+
+    Note over P: stage = explanations
+    P-&gt;&gt;P: build one prompt per move that is new, refreshed or gained articles
+    par up to 6 threads
+        P-&gt;&gt;O: structured(ExplanationOutput)
+    end
+    P-&gt;&gt;DB: upsert explanations, set relevance on links, commit
+
+    Note over P: stage = complete
+    P-&gt;&gt;DB: job status = done, detail = counts, cost, errors
+    C-&gt;&gt;R: GET /tickers/AAPL/status
+    R--&gt;&gt;C: job row
+</pre>
+<p>On any <code>AppError</code> the job is marked failed with the error&#x27;s message. On any other exception the job says &quot;Unexpected X. See the server log.&quot; Finished stages stay committed, so re-posting resumes at no cost.</p>
+<h2>3. Read flow</h2>
+<p><code>GET /tickers/{ticker}</code> and its sub-resources. No outside calls.</p>
+<pre class='mermaid'>sequenceDiagram
+    autonumber
+    participant C as Client
+    participant R as tickers.py
+    participant T as ticker_data.py
+    participant Q as movement_queries.py
+    participant DB as SQLite
+
+    C-&gt;&gt;R: GET /tickers/AAPL?direction=down&amp;min_confidence=0.7&amp;sort=magnitude
+    R-&gt;&gt;R: parse query string into TickerDataQuery (MovementFilters + include_prices), 422 on unknown key
+    R-&gt;&gt;T: get_ticker_data(session, &quot;AAPL&quot;, filters, include_prices)
+    T-&gt;&gt;DB: require_company (404 if missing)
+    T-&gt;&gt;Q: query_movements(filters)
+    Q-&gt;&gt;DB: one SELECT with the filters as WHERE clauses, explanation and articles eager-loaded, plus a COUNT
+    T-&gt;&gt;T: to_movement_response per row: apply article scope (cited|all|none), tier, min_relevance, snippets
+    T-&gt;&gt;DB: analysed_period from finished jobs, prices in that window
+    T--&gt;&gt;R: TickerDataResponse
+    R--&gt;&gt;C: 200 JSON
+</pre>
+<p><code>/movements</code> and <code>/prices</code> are the same path without the other half. <code>/movements/{day}</code> uses fixed filters (all articles, with snippets).</p>
+<h2>4. Chat flow</h2>
+<p><code>POST /chat</code>. The tools call the same <code>ticker_data.py</code> functions as the REST routes.</p>
+<pre class='mermaid'>sequenceDiagram
+    autonumber
+    participant C as Client
+    participant R as chat.py
+    participant S as chat_service.chat
+    participant O as OpenAI
+    participant T as chat tools
+    participant DB as SQLite
+
+    C-&gt;&gt;R: POST /chat {message, ticker?, conversation_id?}
+    R-&gt;&gt;S: chat(session, llm, settings, request)
+    S-&gt;&gt;DB: list ingested tickers for the system prompt
+    S-&gt;&gt;DB: replayable_history: earlier questions and final answers only
+    loop up to 6 rounds
+        S-&gt;&gt;O: chat(context + new messages, tool specs)
+        alt model returns an answer
+            O--&gt;&gt;S: content
+        else model returns tool calls
+            O--&gt;&gt;S: tool_calls
+            S-&gt;&gt;T: run_tool: validate args with the Pydantic model, run
+            T-&gt;&gt;DB: same queries as REST
+            T--&gt;&gt;S: result dict, or {&quot;error&quot;: ...}
+            S-&gt;&gt;S: collect every {title, url} in the result as a citable article
+        end
+    end
+    opt still calling tools after 6 rounds
+        S-&gt;&gt;O: chat(..., no tools, &quot;answer with what you have&quot;)
+    end
+    S-&gt;&gt;S: citations_in: keep only URLs that appear in the answer and came from a tool
+    S-&gt;&gt;DB: store every message of this turn, including tool calls
+    S--&gt;&gt;R: ChatResponse {conversation_id, answer, citations, tool_calls}
+    R--&gt;&gt;C: 200 JSON
+</pre>
+<h2>5. Ingest job lifecycle</h2>
+<pre class='mermaid'>stateDiagram-v2
+    [*] --&gt; pending: POST /ingest creates the row
+    pending --&gt; running: run_ingest sets the first stage
+    running --&gt; running: prices, movements, news, explanations (each commits)
+    running --&gt; done: finish_job, stage = complete
+    running --&gt; failed: AppError or unexpected exception
+    pending --&gt; failed: server restarted (fail_interrupted_jobs at startup)
+    running --&gt; failed: server restarted (fail_interrupted_jobs at startup)
+    done --&gt; [*]
+    failed --&gt; [*]
+</pre>
+<p>A pending or running job blocks a second ingest of the same ticker (the POST returns it with 200). Done and failed jobs do not.</p>
+<h2>6. Models</h2>
+<p>One SQLAlchemy class per file in <code>app/models/</code>. Types shown as stored in SQLite. Enum columns are plain strings.</p>
+<pre class='mermaid'>erDiagram
+    companies {
+        string ticker PK
+        string name
+        string sector
+        string industry
+        string sector_etf
+        json peers &quot;list of {name, ticker}&quot;
+        datetime updated_at
+    }
+    prices {
+        string ticker PK &quot;also SPY, sector ETFs and peers&quot;
+        date date PK
+        float open
+        float high
+        float low
+        float close
+        int volume
+    }
+    movements {
+        int id PK
+        string ticker &quot;unique with date&quot;
+        date date
+        float close
+        float prev_close
+        float pct_change
+        float zscore
+        float volume_ratio
+        float market_pct_change
+        float sector_pct_change
+        float excess_vs_market
+        float excess_vs_sector
+        string driver_hint &quot;market | sector | idiosyncratic&quot;
+        date window_start
+        date window_end
+    }
+    articles {
+        int id PK
+        string url UK
+        string title
+        string source
+        datetime published_at
+        string snippet
+    }
+    movement_articles {
+        int movement_id PK, FK
+        int article_id PK, FK
+        string tier &quot;company | industry | macro&quot;
+        float relevance &quot;0..1, set by the explanation&quot;
+    }
+    explanations {
+        int movement_id PK, FK
+        string summary
+        string category &quot;company | industry | macro | unexplained&quot;
+        float confidence
+        string model
+        datetime created_at
+    }
+    news_search_cache {
+        string cache_key PK &quot;tier:scope:window_start:window_end&quot;
+        json article_ids
+        float cost_dollars
+        datetime fetched_at
+    }
+    ingest_jobs {
+        int id PK
+        string ticker
+        string status &quot;pending | running | done | failed&quot;
+        string stage
+        json detail &quot;params, counts, cost, errors&quot;
+        string error
+        datetime started_at
+        datetime finished_at
+    }
+    chat_messages {
+        int id PK
+        string conversation_id
+        string role
+        json content &quot;full OpenAI message dict&quot;
+        datetime created_at
+    }
+
+    companies ||--o{ movements : &quot;ticker&quot;
+    companies ||--o{ prices : &quot;ticker&quot;
+    companies ||--o{ ingest_jobs : &quot;ticker&quot;
+    movements ||--o| explanations : &quot;movement_id&quot;
+    movements ||--o{ movement_articles : &quot;movement_id&quot;
+    articles ||--o{ movement_articles : &quot;article_id&quot;
+    news_search_cache }o..o{ articles : &quot;article_ids (JSON, no FK)&quot;
+</pre>
+<p>The <code>ticker</code> links to <code>companies</code> are by value, not declared foreign keys, because <code>prices</code> also holds benchmark and peer rows that have no company row.</p>
+<h2>7. Schemas</h2>
+<p>Pydantic models in <code>app/schemas/</code>. These are the serialisers: FastAPI validates input against the request models and output against the response models, and the LLM&#x27;s structured output is parsed into the <code>llm</code> models.</p>
+<h3>API request and response</h3>
+<pre class='mermaid'>classDiagram
+    class MovementFilters {
+        date start
+        date end
+        Direction direction
+        float min_abs_change
+        ExplanationCategory category
+        DriverHint driver_hint
+        float min_confidence
+        bool explained_only
+        ArticleScope articles = cited
+        NewsTier tier
+        float min_relevance
+        bool include_snippets = false
+        MovementSort sort = date_desc
+        int limit
+        int offset
+    }
+    class TickerDataQuery {
+        bool include_prices = true
+    }
+    class PriceQuery {
+        date start
+        date end
+    }
+    class IngestRequest {
+        date start
+        date end
+        int lookback_days
+        float threshold_pct
+        int max_movements
+        bool refresh = false
+    }
+    MovementFilters &lt;|-- TickerDataQuery
+
+    class TickerDataResponse {
+        TickerSummaryResponse summary
+        IngestJobResponse latest_ingest
+        MovementFilters filters
+        int total_movements
+        MovementResponse[] movements
+        PriceResponse[] prices
+    }
+    class MovementListResponse {
+        string ticker
+        MovementFilters filters
+        int total_movements
+        MovementResponse[] movements
+    }
+    class PriceListResponse {
+        string ticker
+        date start
+        date end
+        PriceResponse[] prices
+    }
+    class TickerSummaryResponse {
+        CompanyResponse company
+        date first_price_date
+        date last_price_date
+        int movement_count
+        int explained_count
+    }
+    class CompanyResponse {
+        string ticker
+        string name
+        string sector
+        string industry
+        string sector_etf
+        PeerResponse[] peers
+    }
+    class PeerResponse {
+        string name
+        string ticker
+    }
+    class MovementResponse {
+        string ticker
+        date date
+        float pct_change
+        float close
+        float prev_close
+        float zscore
+        float volume_ratio
+        float market_pct_change
+        float sector_pct_change
+        float excess_vs_market
+        float excess_vs_sector
+        DriverHint driver_hint
+        date news_window_start
+        date news_window_end
+        PeerMoveResponse[] peer_moves
+        ExplanationResponse explanation
+        ArticleResponse[] articles
+    }
+    class PeerMoveResponse {
+        string name
+        string ticker
+        float pct_change
+    }
+    class ExplanationResponse {
+        string summary
+        ExplanationCategory category
+        float confidence
+        string model
+        datetime created_at
+    }
+    class ArticleResponse {
+        int id
+        string url
+        string title
+        string source
+        datetime published_at
+        string snippet
+        NewsTier tier
+        float relevance
+        bool cited
+    }
+    class PriceResponse {
+        date date
+        float open
+        float high
+        float low
+        float close
+        int volume
+    }
+    class IngestJobResponse {
+        int id
+        string ticker
+        JobStatus status
+        string stage
+        dict detail
+        string error
+        datetime started_at
+        datetime finished_at
+    }
+    class ErrorResponse {
+        ErrorBody error
+    }
+    class ErrorBody {
+        string code
+        string message
+    }
+
+    TickerDataResponse *-- TickerSummaryResponse
+    TickerDataResponse *-- IngestJobResponse
+    TickerDataResponse *-- MovementFilters
+    TickerDataResponse *-- &quot;0..*&quot; MovementResponse
+    TickerDataResponse *-- &quot;0..*&quot; PriceResponse
+    MovementListResponse *-- &quot;0..*&quot; MovementResponse
+    PriceListResponse *-- &quot;0..*&quot; PriceResponse
+    TickerSummaryResponse *-- CompanyResponse
+    CompanyResponse *-- &quot;0..4&quot; PeerResponse
+    MovementResponse *-- &quot;0..*&quot; PeerMoveResponse
+    MovementResponse *-- &quot;0..1&quot; ExplanationResponse
+    MovementResponse *-- &quot;0..*&quot; ArticleResponse
+    ErrorResponse *-- ErrorBody
+</pre>
+<h3>Chat</h3>
+<pre class='mermaid'>classDiagram
+    class ChatRequest {
+        string message
+        string ticker
+        string conversation_id
+    }
+    class ChatResponse {
+        string conversation_id
+        string answer
+        Citation[] citations
+        ToolCallTrace[] tool_calls
+    }
+    class Citation {
+        string title
+        string url
+        string source
+    }
+    class ToolCallTrace {
+        string name
+        dict arguments
+    }
+    class ChatMessageResponse {
+        string role
+        string content
+        datetime created_at
+    }
+    ChatResponse *-- &quot;0..*&quot; Citation
+    ChatResponse *-- &quot;0..*&quot; ToolCallTrace
+
+    class MovementFilters
+    class ListMovementsArgs {
+        string ticker
+        int limit
+    }
+    class GetMovementArgs {
+        string ticker
+        date date
+    }
+    class SearchArticlesArgs {
+        string query
+        string ticker
+        date start
+        date end
+        NewsTier tier
+        int limit
+    }
+    class PriceSummaryArgs {
+        string ticker
+        date start
+        date end
+    }
+    class EmptyArgs
+    MovementFilters &lt;|-- ListMovementsArgs
+    note for ListMovementsArgs &quot;Tool argument models. Their JSON schema is generated and sent to OpenAI as the tool spec.&quot;
+</pre>
+<h3>LLM structured output</h3>
+<pre class='mermaid'>classDiagram
+    class ExplanationOutput {
+        string summary
+        ExplanationCategory category
+        float confidence
+        ArticleRelevance[] article_relevance
+    }
+    class ArticleRelevance {
+        int article_id
+        float relevance
+    }
+    class PeersOutput {
+        PeerSuggestion[] peers
+    }
+    class PeerSuggestion {
+        string name
+        string ticker
+    }
+    ExplanationOutput *-- &quot;1..*&quot; ArticleRelevance
+    PeersOutput *-- &quot;0..*&quot; PeerSuggestion
+    note for ExplanationOutput &quot;Passed as response_format to chat.completions.parse. Unknown article ids are dropped and scores clamped before storage.&quot;
+</pre>
+<h2>8. Protocols and strategy registries</h2>
+<p>The three seams where a fake or a new implementation drops in.</p>
+<pre class='mermaid'>classDiagram
+    class MarketDataProvider {
+        &lt;&lt;Protocol&gt;&gt;
+        fetch_history(ticker, start, end) DataFrame
+        fetch_profile(ticker) Profile
+    }
+    class YFinanceMarketDataProvider
+    class FakeMarketDataProvider
+    MarketDataProvider &lt;|.. YFinanceMarketDataProvider
+    MarketDataProvider &lt;|.. FakeMarketDataProvider
+
+    class NewsProvider {
+        &lt;&lt;Protocol&gt;&gt;
+        search(query, start, end, limit) NewsSearchResult
+    }
+    class ExaNewsProvider
+    class FakeNewsProvider
+    NewsProvider &lt;|.. ExaNewsProvider
+    NewsProvider &lt;|.. FakeNewsProvider
+
+    class LLMClient {
+        &lt;&lt;Protocol&gt;&gt;
+        string model
+        structured(system, user, response_model) T
+        chat(messages, tools) ChatTurn
+    }
+    class OpenAILLMClient
+    class FakeLLMClient
+    LLMClient &lt;|.. OpenAILLMClient
+    LLMClient &lt;|.. FakeLLMClient
+
+    class NewsTierStrategy {
+        &lt;&lt;Protocol&gt;&gt;
+        NewsTier tier
+        int max_results
+        build_query(movement, company) str
+        cache_scope(movement, company) str
+    }
+    class CompanyTier
+    class IndustryTier
+    class MacroTier
+    NewsTierStrategy &lt;|.. CompanyTier
+    NewsTierStrategy &lt;|.. IndustryTier
+    NewsTierStrategy &lt;|.. MacroTier
+    note for NewsTierStrategy &quot;NEWS_TIERS registry in news/registry.py. TIER_PRIORITY orders them per driver hint.&quot;
+
+    class ChatTool {
+        &lt;&lt;Protocol&gt;&gt;
+        string name
+        string description
+        type args_model
+        run(session, args) dict
+    }
+    class ListTickersTool
+    class ListMovementsTool
+    class GetMovementTool
+    class SearchArticlesTool
+    class PriceSummaryTool
+    ChatTool &lt;|.. ListTickersTool
+    ChatTool &lt;|.. ListMovementsTool
+    ChatTool &lt;|.. GetMovementTool
+    ChatTool &lt;|.. SearchArticlesTool
+    ChatTool &lt;|.. PriceSummaryTool
+    note for ChatTool &quot;CHAT_TOOLS registry in chat/tools/registry.py.&quot;
+</pre>
+<h2>9. Errors</h2>
+<pre class='mermaid'>classDiagram
+    class Exception
+    class AppError {
+        int status_code = 500
+        string code = internal_error
+        string message
+    }
+    class InvalidTicker {
+        422
+    }
+    class TickerNotFound {
+        404
+    }
+    class TickerNotIngested {
+        404
+    }
+    class MovementNotFound {
+        404
+    }
+    class ConversationNotFound {
+        404
+    }
+    class ProviderError {
+        502
+    }
+    class ProviderNotConfigured {
+        503
+    }
+    Exception &lt;|-- AppError
+    AppError &lt;|-- InvalidTicker
+    AppError &lt;|-- TickerNotFound
+    AppError &lt;|-- TickerNotIngested
+    AppError &lt;|-- MovementNotFound
+    AppError &lt;|-- ConversationNotFound
+    AppError &lt;|-- ProviderError
+    AppError &lt;|-- ProviderNotConfigured
+    note for AppError &quot;One handler in main.py maps any AppError to {error: {code, message}}. In the pipeline an AppError message goes on the job row; anything else is logged only.&quot;
+</pre>
+<h2>10. Driver hint decision</h2>
+<p>The price-only heuristic in <code>movements.driver_hint</code>. A benchmark explains a move when it went the same direction, moved at least 1% itself, and covers at least 40% of the stock&#x27;s move.</p>
+<pre class='mermaid'>flowchart TD
+    A[Move of pct on day D] --&gt; B{SPY explains?}
+    B -- yes --&gt; M[market]
+    B -- no --&gt; C{Sector ETF explains?}
+    C -- yes --&gt; S[sector]
+    C -- no --&gt; D{Peer median explains?&lt;br/&gt;needs 2+ peers with prices}
+    D -- yes --&gt; S
+    D -- no --&gt; I[idiosyncratic]
+    M --&gt; O[Orders the news tiers: macro, industry, company]
+    S --&gt; P[Orders the news tiers: industry, company, macro]
+    I --&gt; Q[Orders the news tiers: company, industry, macro]
+</pre>
+<p>Every tier still runs. The hint sets the link order (an article found by two tiers keeps the first one&#x27;s label) and goes into the explanation prompt as evidence.</p>
+<script type="module">
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+mermaid.initialize({startOnLoad:true, theme:'neutral'});
+</script></body></html>
